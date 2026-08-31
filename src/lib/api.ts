@@ -35,6 +35,24 @@ export interface SessionSummary extends SessionInfo {
   track_count: number;
 }
 
+export interface MoodPlayCount {
+  mood_id: string;
+  play_count: number;
+}
+
+export interface CategoryBreakdown {
+  category: string;
+  session_count: number;
+}
+
+export interface ListeningStats {
+  total_seconds_listened: number;
+  total_sessions: number;
+  total_tracks_played: number;
+  top_mood_id: string | null;
+  category_breakdown: CategoryBreakdown[];
+}
+
 export interface QueueView {
   current: Track | null;
   upcoming: Track[];
@@ -114,6 +132,11 @@ export const api = {
   setTrackFeedback: (track: Track, liked: boolean) =>
     call<void>("set_track_feedback", { track, liked }),
   getTrackFeedback: (trackId: string) => call<boolean | null>("get_track_feedback", { trackId }),
+
+  listFavoriteTracks: () => call<Track[]>("list_favorite_tracks"),
+  listMostPlayedMoods: () => call<MoodPlayCount[]>("list_most_played_moods"),
+  getListeningStats: () => call<ListeningStats>("get_listening_stats"),
+  playSingleTrack: (track: Track) => call<void>("play_single_track", { track }),
 
   searchTracks: (query: string, limit: number) => call<Track[]>("search_tracks", { query, limit }),
 
