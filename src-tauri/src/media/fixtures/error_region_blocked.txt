@@ -1,0 +1,1 @@
+ERROR: [youtube] abc12345678: The uploader has not made this video available in your country

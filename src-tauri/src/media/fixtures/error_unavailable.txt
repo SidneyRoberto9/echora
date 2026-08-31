@@ -1,0 +1,1 @@
+ERROR: [youtube] abc12345678: Video unavailable. This video has been removed by the uploader
