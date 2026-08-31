@@ -7,9 +7,11 @@ Linux. Pick how you want to feel — *Villain*, *Focus*, *Night Drive*,
 keeping a browser or the full YouTube interface open just to listen to
 music.
 
-> **Status: early development (Fase 1 — Foundation).** No playable build
-> yet. This README will grow as features land; see `docs/` for the
-> current architecture and decisions.
+> **Status: pre-release development.** Core loop (mood → search → play →
+> queue → history), the React UI, and desktop integration (tray, MPRIS
+> media keys, autostart) work in dev builds; there is no packaged
+> `.deb`/AppImage yet. See `docs/` for the current architecture and
+> decisions.
 
 ## Why
 
