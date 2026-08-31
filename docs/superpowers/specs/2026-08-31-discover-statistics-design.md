@@ -122,9 +122,44 @@ Three new `#[tauri::command]`s, thin wrappers like the existing ones:
   `category_breakdown` by grouping `mood_play_counts()` through
   `state.moods.get(mood_id)`, skipping unknown IDs.
 
-No changes to `resolve_and_load`, `start_session_and_play`, `play_track`,
-or any playback path — Discover only ever calls the same
-`start_mood_session`/`play_track` commands the rest of the UI already uses.
+### Amendment: playing a favorited track needs a new command, not raw `play_track`
+
+`commands::playback::play_track` only resolves a stream and hands it to
+mpv — it never touches `state.queue`. Calling it directly from a favorited
+track click would play real audio while `queue.current` stays whatever it
+was before (or `None`), so `MiniPlayerBar` (which only renders when
+`playback.queue.current` is set — see `App.tsx`) and `PlayerView` would
+show stale or no now-playing UI at all. A history/favorite/most-played
+**mood** click doesn't have this problem — it calls `start_mood_session`,
+which already goes through the real queue.
+
+Fix: one new command, `commands::queue::play_single_track`:
+
+```rust
+/// Ends the current session (if any — a favorited-track replay isn't tied
+/// to a mood, so it doesn't start a new one), replaces the queue with just
+/// this one track, and plays it. `queue_next` afterward finds nothing
+/// upcoming (matching a deliberately ad-hoc, non-session play) rather than
+/// pulling in mood-engine candidates.
+#[tauri::command]
+pub async fn play_single_track(state: State<'_, AppState>, track: Track) -> Result<()> {
+    if state.db.lock().unwrap().current_session()?.is_some() {
+        super::session::end_session_impl(&state)?;
+    }
+    state.queue.lock().unwrap().add_candidates([track.clone()]);
+    super::resolve_and_load(&state, &track).await
+}
+```
+
+This plays but does not record history for the track (no active session to
+attribute it to) — acceptable, since it's a replay of something already
+favorited/known, not new listening the stats should double-count. Frontend
+calls this instead of `api.playTrack` for favorited-track rows only; mood
+rows keep using `api.startMoodSession`.
+
+No other changes to `resolve_and_load`, `start_session_and_play`, or
+`play_track` — everything else in Discover calls the same
+`start_mood_session` command the rest of the UI already uses.
 
 ## Frontend (React)
 
@@ -140,16 +175,18 @@ or any playback path — Discover only ever calls the same
     favorite moods, favorite tracks, most-played moods), each a list of
     rows. Reuses `EmptyState` when a section has no data. Row click
     handlers call `api.startMoodSession(moodId)` (history entries and
-    favorited/most-played moods) or `api.playTrack(trackId)` (favorited
-    tracks) — the same calls `HomeView`/`MiniPlayerBar` already make.
+    favorited/most-played moods, same call `HomeView` already makes) or
+    `api.playSingleTrack(track)` (favorited tracks — see the
+    `play_single_track` amendment above; NOT the raw `play_track` command,
+    which doesn't update the queue that `MiniPlayerBar`/`PlayerView` read).
   - `src/components/StatsTab.tsx` — number cards for
     `total_seconds_listened` (formatted as `Xh Ym`), `total_sessions`,
     `total_tracks_played`, `top_mood_id` (resolved to the mood's display
     name via the already-loaded `useMoods` catalog), and one row per
     `category_breakdown` entry.
-- `src/lib/api.ts`: three new thin wrappers (`listFavoriteTracks`,
-  `listMostPlayedMoods`, `getListeningStats`), matching the existing
-  `call<T>(...)` pattern.
+- `src/lib/api.ts`: four new thin wrappers (`listFavoriteTracks`,
+  `listMostPlayedMoods`, `getListeningStats`, `playSingleTrack`), matching
+  the existing `call<T>(...)` pattern.
 
 No new hook needed — `DiscoverView` fetches its own data on mount with
 plain `useEffect`/`useState`, matching `SettingsView`'s existing pattern
