@@ -26,6 +26,19 @@ pub fn start_session(state: State<AppState>, mood_id: String) -> Result<SessionI
     start_session_impl(&state, &mood_id)
 }
 
+/// The real "choose a mood, get music" entry point: creates the session
+/// (clearing any leftover queue) and immediately fetches the first batch
+/// of candidates for it — `start_session` alone only does the former.
+#[tauri::command]
+pub async fn start_mood_session(
+    state: State<'_, AppState>,
+    mood_id: String,
+) -> Result<SessionInfo> {
+    let session = start_session_impl(&state, &mood_id)?;
+    super::top_up_queue(&state, &mood_id).await?;
+    Ok(session)
+}
+
 #[tauri::command]
 pub fn end_session(state: State<AppState>) -> Result<()> {
     end_session_impl(&state)

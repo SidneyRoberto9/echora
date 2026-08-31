@@ -3,6 +3,7 @@ mod db;
 mod error;
 mod media;
 mod models;
+mod mood_engine;
 mod moods;
 mod queue;
 mod state;
@@ -60,9 +61,11 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             greet,
             commands::mood::list_moods,
+            commands::mood::surprise_me,
             commands::settings::get_settings,
             commands::settings::update_settings,
             commands::session::start_session,
+            commands::session::start_mood_session,
             commands::session::end_session,
             commands::session::get_current_session,
             commands::session::list_history,
@@ -71,6 +74,7 @@ pub fn run() {
             commands::queue::queue_previous,
             commands::queue::queue_skip_to,
             commands::queue::queue_remove,
+            commands::queue::ensure_queue_topped_up,
             commands::library::favorite_track,
             commands::library::unfavorite_track,
             commands::library::is_track_favorited,
