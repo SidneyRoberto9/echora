@@ -178,9 +178,11 @@ No other changes to `resolve_and_load`, `start_session_and_play`, or
   existing three.
 - `src/components/DiscoverView.tsx`: owns local tab state
   (`"library" | "stats"`), renders a small tab switcher plus one of:
-  - `src/components/LibraryTab.tsx` — four sections (session history,
-    favorite moods, favorite tracks, most-played moods), each a list of
-    rows. Reuses `EmptyState` when a section has no data. Row click
+  - `src/components/LibraryTab.tsx` — four sections (most-played moods,
+    favorite moods, favorite tracks, session history), each a list of
+    rows. A wholly empty tab renders one `EmptyState`; an individually
+    empty section renders a compact inline message instead, so a fresh
+    profile doesn't stack four full-size empty states. Row click
     handlers call `api.startMoodSession(moodId)` (history entries and
     favorited/most-played moods, same call `HomeView` already makes) or
     `api.playSingleTrack(track)` (favorited tracks — see the
@@ -194,16 +196,21 @@ No other changes to `resolve_and_load`, `start_session_and_play`, or
 - `src/lib/api.ts`: four new thin wrappers (`listFavoriteTracks`,
   `listMostPlayedMoods`, `getListeningStats`, `playSingleTrack`), matching
   the existing `call<T>(...)` pattern.
-
-No new hook needed — `DiscoverView` fetches its own data on mount with
-plain `useEffect`/`useState`, matching `SettingsView`'s existing pattern
-(this project doesn't have a shared data-fetching abstraction yet, and
-adding one for a single view would be premature).
+- `src/hooks/useDiscover.ts`: one new hook, matching the project's
+  existing `useMoods`/`useSettings` fetch-on-mount pattern. Discover needs
+  to coordinate five parallel fetches (history, favorite moods, favorite
+  tracks, most-played moods, listening stats) behind a single
+  `loading`/`error` pair, which is more than inline `useEffect`/`useState`
+  in the view carries cleanly — and it keeps the view a display layer.
+  The mood catalog itself is *not* re-fetched here: `DiscoverView` takes
+  `App`'s already-loaded `useMoods()` result as a prop, the same way
+  `HomeView` does.
 
 ## Error handling / edge cases
 
 - Empty database (no sessions/favorites ever) → every list is empty, every
-  stat is `0`/`None`; `EmptyState` renders per section. No query above can
+  stat is `0`/`None`; the Library tab renders a single `EmptyState` for
+  the whole tab rather than one per section. No query above can
   error on an empty table (all use `COUNT`/`SUM`/`GROUP BY` over
   zero rows, which SQLite returns as `0`/`NULL`, not an error).
 - A `mood_id` recorded in history that's no longer in the loaded

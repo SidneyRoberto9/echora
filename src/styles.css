@@ -769,7 +769,7 @@ a:hover {
   width: 100%;
   text-align: left;
 }
-.library-row:hover {
+.library-row:not(.library-row--static):hover {
   background: var(--bg-elevated);
 }
 .library-row:disabled {

@@ -19,6 +19,17 @@ function formatDate(unixSeconds: number): string {
   });
 }
 
+/** Compact stand-in for a single empty section. The full `EmptyState` is
+ * reserved for a wholly empty tab — four of them at 48px of padding each
+ * would fill the viewport with near-identical icons on a fresh profile. */
+function EmptySection({ message }: { message: string }) {
+  return (
+    <div className="library-row library-row--static">
+      <span className="library-row__meta">{message}</span>
+    </div>
+  );
+}
+
 export function LibraryTab({
   discover,
   moods,
@@ -41,12 +52,29 @@ export function LibraryTab({
     );
   }
 
+  if (
+    history.length === 0 &&
+    favoriteMoodIds.length === 0 &&
+    favoriteTracks.length === 0 &&
+    mostPlayedMoods.length === 0
+  ) {
+    return (
+      <div className="library-tab">
+        <EmptyState
+          icon={<EmptyQueueIcon />}
+          title="Nothing here yet"
+          hint="Play a mood and your history, favorites and rankings show up here."
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="library-tab">
       <section className="library-section">
         <h2 className="mood-row__title">Most Played Moods</h2>
         {mostPlayedMoods.length === 0 ? (
-          <EmptyState icon={<EmptyQueueIcon />} title="No moods played yet" />
+          <EmptySection message="No moods played yet" />
         ) : (
           mostPlayedMoods.map((entry) => (
             <button
@@ -66,7 +94,7 @@ export function LibraryTab({
       <section className="library-section">
         <h2 className="mood-row__title">Favorite Moods</h2>
         {favoriteMoodIds.length === 0 ? (
-          <EmptyState icon={<EmptyQueueIcon />} title="No favorited moods yet" />
+          <EmptySection message="No favorited moods yet" />
         ) : (
           favoriteMoodIds.map((moodId) => (
             <button
@@ -85,7 +113,7 @@ export function LibraryTab({
       <section className="library-section">
         <h2 className="mood-row__title">Favorite Tracks</h2>
         {favoriteTracks.length === 0 ? (
-          <EmptyState icon={<EmptyQueueIcon />} title="No favorited tracks yet" />
+          <EmptySection message="No favorited tracks yet" />
         ) : (
           favoriteTracks.map((track) => (
             <button
@@ -108,7 +136,7 @@ export function LibraryTab({
       <section className="library-section">
         <h2 className="mood-row__title">Session History</h2>
         {history.length === 0 ? (
-          <EmptyState icon={<EmptyQueueIcon />} title="No sessions yet" />
+          <EmptySection message="No sessions yet" />
         ) : (
           history.map((session) => (
             <button

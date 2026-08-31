@@ -104,8 +104,10 @@ pub(crate) fn make_room_for_single_track(state: &AppState) -> Result<()> {
 }
 
 /// Plays a single track outside of any mood session — used for replaying
-/// a favorited track from Discover. See `make_room_for_single_track` for
-/// why this can't just call `commands::playback::play_track` directly.
+/// a favorited track from Discover. Resolving and loading a stream isn't
+/// enough on its own: the queue has to become this one track too, or
+/// `MiniPlayerBar`/`PlayerView` (which read `queue.current`) would show
+/// stale now-playing state. See `make_room_for_single_track`.
 #[tauri::command]
 pub async fn play_single_track(state: State<'_, AppState>, track: Track) -> Result<()> {
     make_room_for_single_track(&state)?;

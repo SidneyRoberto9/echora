@@ -1,3 +1,6 @@
+import { EmptyState } from "./EmptyState";
+import { EmptyQueueIcon } from "./icons";
+import { CATEGORY_LABEL } from "../lib/categories";
 import type { ListeningStats, MoodSummary } from "../lib/api";
 
 interface StatsTabProps {
@@ -13,20 +16,21 @@ function formatDuration(totalSeconds: number): string {
   return `${hours}h ${minutes}m`;
 }
 
-const CATEGORY_LABEL: Record<string, string> = {
-  power: "Power",
-  dark: "Dark",
-  love: "Love",
-  sad: "Sad",
-  "energy-lifestyle": "Energy & Lifestyle",
-  cinematic: "Cinematic",
-};
-
 export function StatsTab({ stats, moods, loading }: StatsTabProps) {
-  if (loading || !stats) {
+  if (loading) {
     return (
       <div className="stats-tab">
         <div className="skeleton" style={{ height: 88, borderRadius: 16 }} />
+      </div>
+    );
+  }
+
+  // Not loading and still no stats means the fetch failed (the error itself
+  // is surfaced by the app's global banner) — don't spin forever.
+  if (!stats) {
+    return (
+      <div className="stats-tab">
+        <EmptyState icon={<EmptyQueueIcon />} title="Couldn't load statistics" />
       </div>
     );
   }

@@ -1,13 +1,15 @@
 import { useEffect, useState } from "react";
 import { useDiscover } from "../hooks/useDiscover";
-import { useMoods } from "../hooks/useMoods";
 import { LibraryTab } from "./LibraryTab";
 import { StatsTab } from "./StatsTab";
+import type { useMoods } from "../hooks/useMoods";
 import type { Track } from "../lib/api";
 
 type DiscoverTab = "library" | "stats";
 
 interface DiscoverViewProps {
+  /** Reuses `App`'s already-loaded catalog — Discover must not re-fetch it. */
+  moodsData: ReturnType<typeof useMoods>;
   onError: (message: string) => void;
   startingMoodId: string | null;
   startingTrackId: string | null;
@@ -16,6 +18,7 @@ interface DiscoverViewProps {
 }
 
 export function DiscoverView({
+  moodsData,
   onError,
   startingMoodId,
   startingTrackId,
@@ -24,7 +27,6 @@ export function DiscoverView({
 }: DiscoverViewProps) {
   const [tab, setTab] = useState<DiscoverTab>("library");
   const discover = useDiscover();
-  const moodsData = useMoods();
 
   useEffect(() => {
     if (discover.error) onError(discover.error);

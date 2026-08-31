@@ -2,16 +2,8 @@ import { useEffect } from "react";
 import type { useMoods } from "../hooks/useMoods";
 import { MoodCard } from "./MoodCard";
 import { SparkleIcon, ChevronRightIcon } from "./icons";
+import { CATEGORY_LABEL } from "../lib/categories";
 import type { MoodSummary } from "../lib/api";
-
-const CATEGORY_LABEL: Record<string, string> = {
-  power: "Power",
-  dark: "Dark",
-  love: "Love",
-  sad: "Sad",
-  "energy-lifestyle": "Energy & Lifestyle",
-  cinematic: "Cinematic",
-};
 
 interface HomeViewProps {
   moodsData: ReturnType<typeof useMoods>;

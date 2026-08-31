@@ -3,22 +3,6 @@ use tauri::State;
 use crate::error::Result;
 use crate::state::AppState;
 
-/// Resolves the track to a playable stream and hands it to the mpv
-/// sidecar, starting mpv on first use (not at app launch — no point
-/// paying for the process before there's anything to play).
-#[tauri::command]
-pub async fn play_track(state: State<'_, AppState>, track_id: String) -> Result<()> {
-    let resolved = state.resolver.resolve_with_retry(&track_id).await?;
-    let mut player = state.player.lock().await;
-    if !player.is_started() {
-        player.start().await?;
-    }
-    player.load(&resolved.stream_url).await?;
-    drop(player);
-    crate::platform::mpris::notify(&state).await;
-    Ok(())
-}
-
 #[tauri::command]
 pub async fn pause_playback(state: State<'_, AppState>) -> Result<()> {
     state.player.lock().await.set_paused(true).await?;

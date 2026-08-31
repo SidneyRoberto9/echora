@@ -104,6 +104,7 @@ function App() {
         {view === "queue" ? <QueueView playback={playback} /> : null}
         {view === "discover" ? (
           <DiscoverView
+            moodsData={moodsData}
             onError={reportError}
             startingMoodId={startingMoodId}
             startingTrackId={startingTrackId}
