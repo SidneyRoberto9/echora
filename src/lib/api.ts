@@ -53,6 +53,13 @@ export interface ListeningStats {
   category_breakdown: CategoryBreakdown[];
 }
 
+export interface SceneSummary {
+  id: number;
+  name: string;
+  created_at: number;
+  track_count: number;
+}
+
 export interface QueueView {
   current: Track | null;
   upcoming: Track[];
@@ -137,6 +144,12 @@ export const api = {
   listMostPlayedMoods: () => call<MoodPlayCount[]>("list_most_played_moods"),
   getListeningStats: () => call<ListeningStats>("get_listening_stats"),
   playSingleTrack: (track: Track) => call<void>("play_single_track", { track }),
+  saveScene: (name: string) => call<SceneSummary>("save_scene", { name }),
+  listScenes: () => call<SceneSummary[]>("list_scenes"),
+  playScene: (sceneId: number) => call<void>("play_scene", { sceneId }),
+  renameScene: (sceneId: number, name: string) =>
+    call<void>("rename_scene", { sceneId, name }),
+  deleteScene: (sceneId: number) => call<void>("delete_scene", { sceneId }),
 
   searchTracks: (query: string, limit: number) => call<Track[]>("search_tracks", { query, limit }),
 
