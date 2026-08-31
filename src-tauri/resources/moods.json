@@ -1,0 +1,1142 @@
+[
+  {
+    "id": "badass",
+    "name": "Badass",
+    "category": "power",
+    "traits": {
+      "energy": 85,
+      "darkness": 65,
+      "romance": 5,
+      "sadness": 10,
+      "aggression": 80,
+      "focus": 40
+    },
+    "queries": [
+      "badass energy playlist",
+      "confident badass vibes",
+      "that girl energy",
+      "main character badass"
+    ]
+  },
+  {
+    "id": "villain",
+    "name": "Villain",
+    "category": "power",
+    "traits": {
+      "energy": 75,
+      "darkness": 90,
+      "romance": 5,
+      "sadness": 15,
+      "aggression": 70,
+      "focus": 30
+    },
+    "queries": [
+      "POV you're the villain",
+      "villain arc playlist",
+      "dark villain energy",
+      "POV you became the villain"
+    ]
+  },
+  {
+    "id": "monster",
+    "name": "Monster",
+    "category": "power",
+    "traits": {
+      "energy": 80,
+      "darkness": 85,
+      "romance": 0,
+      "sadness": 20,
+      "aggression": 85,
+      "focus": 35
+    },
+    "queries": [
+      "monster energy playlist",
+      "unleash the monster",
+      "dark monster beats",
+      "POV you're a monster"
+    ]
+  },
+  {
+    "id": "unstoppable",
+    "name": "Unstoppable",
+    "category": "power",
+    "traits": {
+      "energy": 85,
+      "darkness": 50,
+      "romance": 5,
+      "sadness": 5,
+      "aggression": 75,
+      "focus": 50
+    },
+    "queries": [
+      "unstoppable force playlist",
+      "nothing can stop me",
+      "unstoppable energy",
+      "momentum playlist"
+    ]
+  },
+  {
+    "id": "god-mode",
+    "name": "God Mode",
+    "category": "power",
+    "traits": {
+      "energy": 90,
+      "darkness": 60,
+      "romance": 5,
+      "sadness": 5,
+      "aggression": 70,
+      "focus": 45
+    },
+    "queries": [
+      "god mode activated",
+      "godlike energy",
+      "divine power playlist",
+      "supreme confidence"
+    ]
+  },
+  {
+    "id": "main-character",
+    "name": "Main Character",
+    "category": "power",
+    "traits": {
+      "energy": 80,
+      "darkness": 40,
+      "romance": 15,
+      "sadness": 5,
+      "aggression": 60,
+      "focus": 55
+    },
+    "queries": [
+      "main character energy",
+      "protagonist era",
+      "it's your story",
+      "main character playlist"
+    ]
+  },
+  {
+    "id": "revenge",
+    "name": "Revenge",
+    "category": "power",
+    "traits": {
+      "energy": 80,
+      "darkness": 80,
+      "romance": 5,
+      "sadness": 30,
+      "aggression": 85,
+      "focus": 40
+    },
+    "queries": [
+      "revenge arc playlist",
+      "karma is a queen",
+      "vengeance energy",
+      "plot twist revenge"
+    ]
+  },
+  {
+    "id": "dark-confidence",
+    "name": "Dark Confidence",
+    "category": "power",
+    "traits": {
+      "energy": 75,
+      "darkness": 75,
+      "romance": 5,
+      "sadness": 15,
+      "aggression": 65,
+      "focus": 50
+    },
+    "queries": [
+      "dark confidence",
+      "mysterious strength",
+      "shadow power",
+      "confident darkness"
+    ]
+  },
+  {
+    "id": "sigma",
+    "name": "Sigma",
+    "category": "power",
+    "traits": {
+      "energy": 70,
+      "darkness": 70,
+      "romance": 5,
+      "sadness": 10,
+      "aggression": 65,
+      "focus": 60
+    },
+    "queries": [
+      "sigma male energy",
+      "sigma grindset",
+      "lone wolf aesthetic",
+      "independent power"
+    ]
+  },
+  {
+    "id": "boss-mode",
+    "name": "Boss Mode",
+    "category": "power",
+    "traits": {
+      "energy": 85,
+      "darkness": 55,
+      "romance": 5,
+      "sadness": 5,
+      "aggression": 70,
+      "focus": 70
+    },
+    "queries": [
+      "boss mode activated",
+      "leadership energy",
+      "boss moves only",
+      "take charge playlist"
+    ]
+  },
+  {
+    "id": "dark",
+    "name": "Dark",
+    "category": "dark",
+    "traits": {
+      "energy": 60,
+      "darkness": 90,
+      "romance": 5,
+      "sadness": 40,
+      "aggression": 60,
+      "focus": 40
+    },
+    "queries": [
+      "dark energy playlist",
+      "dark vibes",
+      "darker shades",
+      "deep dark atmosphere"
+    ]
+  },
+  {
+    "id": "evil",
+    "name": "Evil",
+    "category": "dark",
+    "traits": {
+      "energy": 70,
+      "darkness": 95,
+      "romance": 0,
+      "sadness": 30,
+      "aggression": 80,
+      "focus": 35
+    },
+    "queries": [
+      "evil playlist",
+      "diabolical energy",
+      "sinister beats",
+      "dark evil power"
+    ]
+  },
+  {
+    "id": "psycho",
+    "name": "Psycho",
+    "category": "dark",
+    "traits": {
+      "energy": 75,
+      "darkness": 90,
+      "romance": 0,
+      "sadness": 25,
+      "aggression": 85,
+      "focus": 40
+    },
+    "queries": [
+      "psycho playlist",
+      "unhinged energy",
+      "chaotic dark",
+      "psychotic vibes"
+    ]
+  },
+  {
+    "id": "demon",
+    "name": "Demon",
+    "category": "dark",
+    "traits": {
+      "energy": 80,
+      "darkness": 95,
+      "romance": 0,
+      "sadness": 20,
+      "aggression": 85,
+      "focus": 30
+    },
+    "queries": [
+      "demon energy playlist",
+      "demonic power",
+      "spawn of darkness",
+      "hellfire beats"
+    ]
+  },
+  {
+    "id": "fallen-angel",
+    "name": "Fallen Angel",
+    "category": "dark",
+    "traits": {
+      "energy": 65,
+      "darkness": 85,
+      "romance": 20,
+      "sadness": 60,
+      "aggression": 50,
+      "focus": 35
+    },
+    "queries": [
+      "fallen angel aesthetic",
+      "angel gone dark",
+      "corrupted beauty",
+      "fallen grace"
+    ]
+  },
+  {
+    "id": "antihero",
+    "name": "Antihero",
+    "category": "dark",
+    "traits": {
+      "energy": 70,
+      "darkness": 80,
+      "romance": 15,
+      "sadness": 40,
+      "aggression": 65,
+      "focus": 45
+    },
+    "queries": [
+      "antihero playlist",
+      "morally grey aesthetic",
+      "antihero arc",
+      "neither good nor evil"
+    ]
+  },
+  {
+    "id": "chaos",
+    "name": "Chaos",
+    "category": "dark",
+    "traits": {
+      "energy": 80,
+      "darkness": 85,
+      "romance": 5,
+      "sadness": 30,
+      "aggression": 80,
+      "focus": 20
+    },
+    "queries": [
+      "chaos energy",
+      "chaotic neutral",
+      "beautiful chaos",
+      "controlled chaos"
+    ]
+  },
+  {
+    "id": "dangerous",
+    "name": "Dangerous",
+    "category": "dark",
+    "traits": {
+      "energy": 75,
+      "darkness": 85,
+      "romance": 5,
+      "sadness": 20,
+      "aggression": 80,
+      "focus": 40
+    },
+    "queries": [
+      "dangerous energy",
+      "stay away vibes",
+      "dangerous woman",
+      "toxic dangerous"
+    ]
+  },
+  {
+    "id": "cold",
+    "name": "Cold",
+    "category": "dark",
+    "traits": {
+      "energy": 50,
+      "darkness": 80,
+      "romance": 5,
+      "sadness": 50,
+      "aggression": 45,
+      "focus": 55
+    },
+    "queries": [
+      "cold vibes",
+      "frozen heart",
+      "ice cold aesthetics",
+      "emotionless energy"
+    ]
+  },
+  {
+    "id": "mysterious",
+    "name": "Mysterious",
+    "category": "dark",
+    "traits": {
+      "energy": 60,
+      "darkness": 80,
+      "romance": 10,
+      "sadness": 40,
+      "aggression": 50,
+      "focus": 50
+    },
+    "queries": [
+      "mysterious energy",
+      "enigmatic vibes",
+      "secret keeper",
+      "dark mystery"
+    ]
+  },
+  {
+    "id": "in-love",
+    "name": "In Love",
+    "category": "love",
+    "traits": {
+      "energy": 70,
+      "darkness": 10,
+      "romance": 90,
+      "sadness": 10,
+      "aggression": 5,
+      "focus": 40
+    },
+    "queries": [
+      "in love playlist",
+      "head over heels",
+      "butterflies and romance",
+      "being in love"
+    ]
+  },
+  {
+    "id": "still-in-love",
+    "name": "Still In Love",
+    "category": "love",
+    "traits": {
+      "energy": 60,
+      "darkness": 15,
+      "romance": 85,
+      "sadness": 35,
+      "aggression": 5,
+      "focus": 35
+    },
+    "queries": [
+      "still in love",
+      "loving after time",
+      "forever love",
+      "timeless romance"
+    ]
+  },
+  {
+    "id": "falling-in-love",
+    "name": "Falling In Love",
+    "category": "love",
+    "traits": {
+      "energy": 75,
+      "darkness": 5,
+      "romance": 95,
+      "sadness": 5,
+      "aggression": 5,
+      "focus": 35
+    },
+    "queries": [
+      "falling in love",
+      "new love energy",
+      "catching feelings",
+      "love at first sight"
+    ]
+  },
+  {
+    "id": "obsessed",
+    "name": "Obsessed",
+    "category": "love",
+    "traits": {
+      "energy": 70,
+      "darkness": 30,
+      "romance": 90,
+      "sadness": 40,
+      "aggression": 15,
+      "focus": 70
+    },
+    "queries": [
+      "obsessed playlist",
+      "can't stop thinking about you",
+      "consumed by love",
+      "obsessive love"
+    ]
+  },
+  {
+    "id": "romantic",
+    "name": "Romantic",
+    "category": "love",
+    "traits": {
+      "energy": 65,
+      "darkness": 10,
+      "romance": 90,
+      "sadness": 15,
+      "aggression": 5,
+      "focus": 45
+    },
+    "queries": [
+      "romantic mood",
+      "romance playlist",
+      "soft romantic energy",
+      "love and roses"
+    ]
+  },
+  {
+    "id": "missing-you",
+    "name": "Missing You",
+    "category": "love",
+    "traits": {
+      "energy": 45,
+      "darkness": 20,
+      "romance": 75,
+      "sadness": 75,
+      "aggression": 5,
+      "focus": 30
+    },
+    "queries": [
+      "missing you playlist",
+      "longing for you",
+      "distance and love",
+      "when you're away"
+    ]
+  },
+  {
+    "id": "first-love",
+    "name": "First Love",
+    "category": "love",
+    "traits": {
+      "energy": 70,
+      "darkness": 5,
+      "romance": 95,
+      "sadness": 20,
+      "aggression": 5,
+      "focus": 40
+    },
+    "queries": [
+      "first love playlist",
+      "first crush energy",
+      "innocent love",
+      "young love"
+    ]
+  },
+  {
+    "id": "late-night-love",
+    "name": "Late Night Love",
+    "category": "love",
+    "traits": {
+      "energy": 55,
+      "darkness": 30,
+      "romance": 85,
+      "sadness": 30,
+      "aggression": 5,
+      "focus": 40
+    },
+    "queries": [
+      "late night love",
+      "2am thoughts of you",
+      "midnight romance",
+      "deep night love"
+    ]
+  },
+  {
+    "id": "toxic-love",
+    "name": "Toxic Love",
+    "category": "love",
+    "traits": {
+      "energy": 65,
+      "darkness": 60,
+      "romance": 80,
+      "sadness": 60,
+      "aggression": 50,
+      "focus": 30
+    },
+    "queries": [
+      "toxic love playlist",
+      "love that hurts",
+      "painful love",
+      "poison love"
+    ]
+  },
+  {
+    "id": "secret-love",
+    "name": "Secret Love",
+    "category": "love",
+    "traits": {
+      "energy": 60,
+      "darkness": 40,
+      "romance": 85,
+      "sadness": 50,
+      "aggression": 10,
+      "focus": 45
+    },
+    "queries": [
+      "secret love",
+      "forbidden romance",
+      "hidden love",
+      "secret crush"
+    ]
+  },
+  {
+    "id": "heartbroken",
+    "name": "Heartbroken",
+    "category": "sad",
+    "traits": {
+      "energy": 30,
+      "darkness": 50,
+      "romance": 30,
+      "sadness": 95,
+      "aggression": 20,
+      "focus": 25
+    },
+    "queries": [
+      "heartbroken playlist",
+      "broken heart songs",
+      "healing heartbreak",
+      "shattered love"
+    ]
+  },
+  {
+    "id": "lonely",
+    "name": "Lonely",
+    "category": "sad",
+    "traits": {
+      "energy": 25,
+      "darkness": 55,
+      "romance": 10,
+      "sadness": 90,
+      "aggression": 10,
+      "focus": 30
+    },
+    "queries": [
+      "lonely playlist",
+      "loneliness songs",
+      "feeling alone",
+      "isolation beats"
+    ]
+  },
+  {
+    "id": "empty",
+    "name": "Empty",
+    "category": "sad",
+    "traits": {
+      "energy": 20,
+      "darkness": 60,
+      "romance": 5,
+      "sadness": 90,
+      "aggression": 5,
+      "focus": 40
+    },
+    "queries": [
+      "empty feeling",
+      "hollow playlist",
+      "numb and empty",
+      "void energy"
+    ]
+  },
+  {
+    "id": "depressed",
+    "name": "Depressed",
+    "category": "sad",
+    "traits": {
+      "energy": 15,
+      "darkness": 70,
+      "romance": 5,
+      "sadness": 95,
+      "aggression": 10,
+      "focus": 35
+    },
+    "queries": [
+      "depression playlist",
+      "sad depression",
+      "dark sadness",
+      "heavy emotional"
+    ]
+  },
+  {
+    "id": "nostalgic",
+    "name": "Nostalgic",
+    "category": "sad",
+    "traits": {
+      "energy": 45,
+      "darkness": 30,
+      "romance": 40,
+      "sadness": 70,
+      "aggression": 5,
+      "focus": 45
+    },
+    "queries": [
+      "nostalgic playlist",
+      "throwback vibes",
+      "memories of the past",
+      "retro sad"
+    ]
+  },
+  {
+    "id": "lost",
+    "name": "Lost",
+    "category": "sad",
+    "traits": {
+      "energy": 30,
+      "darkness": 60,
+      "romance": 15,
+      "sadness": 80,
+      "aggression": 10,
+      "focus": 25
+    },
+    "queries": [
+      "lost playlist",
+      "losing direction",
+      "wandering and lost",
+      "confused and alone"
+    ]
+  },
+  {
+    "id": "overthinking",
+    "name": "Overthinking",
+    "category": "sad",
+    "traits": {
+      "energy": 35,
+      "darkness": 50,
+      "romance": 15,
+      "sadness": 75,
+      "aggression": 10,
+      "focus": 55
+    },
+    "queries": [
+      "overthinking playlist",
+      "spiral thoughts",
+      "anxiety beats",
+      "racing mind"
+    ]
+  },
+  {
+    "id": "crying-at-3am",
+    "name": "Crying at 3AM",
+    "category": "sad",
+    "traits": {
+      "energy": 20,
+      "darkness": 65,
+      "romance": 25,
+      "sadness": 95,
+      "aggression": 5,
+      "focus": 30
+    },
+    "queries": [
+      "crying at 3am",
+      "late night tears",
+      "3am sadness",
+      "midnight crying"
+    ]
+  },
+  {
+    "id": "moving-on",
+    "name": "Moving On",
+    "category": "sad",
+    "traits": {
+      "energy": 55,
+      "darkness": 30,
+      "romance": 25,
+      "sadness": 60,
+      "aggression": 10,
+      "focus": 60
+    },
+    "queries": [
+      "moving on playlist",
+      "letting go",
+      "healing songs",
+      "forward energy"
+    ]
+  },
+  {
+    "id": "memories",
+    "name": "Memories",
+    "category": "sad",
+    "traits": {
+      "energy": 40,
+      "darkness": 40,
+      "romance": 50,
+      "sadness": 75,
+      "aggression": 5,
+      "focus": 45
+    },
+    "queries": [
+      "memories playlist",
+      "old memories",
+      "looking back",
+      "cherished memories"
+    ]
+  },
+  {
+    "id": "hype",
+    "name": "Hype",
+    "category": "energy-lifestyle",
+    "traits": {
+      "energy": 95,
+      "darkness": 10,
+      "romance": 5,
+      "sadness": 5,
+      "aggression": 80,
+      "focus": 40
+    },
+    "queries": [
+      "hype playlist",
+      "get hyped",
+      "energy pump up",
+      "let's go beats"
+    ]
+  },
+  {
+    "id": "workout",
+    "name": "Workout",
+    "category": "energy-lifestyle",
+    "traits": {
+      "energy": 90,
+      "darkness": 15,
+      "romance": 5,
+      "sadness": 5,
+      "aggression": 75,
+      "focus": 75
+    },
+    "queries": [
+      "workout playlist",
+      "gym motivation",
+      "fitness beats",
+      "pump it up"
+    ]
+  },
+  {
+    "id": "rage",
+    "name": "Rage",
+    "category": "energy-lifestyle",
+    "traits": {
+      "energy": 85,
+      "darkness": 70,
+      "romance": 0,
+      "sadness": 15,
+      "aggression": 95,
+      "focus": 30
+    },
+    "queries": [
+      "rage playlist",
+      "angry energy",
+      "let it out",
+      "fury and power"
+    ]
+  },
+  {
+    "id": "adrenaline",
+    "name": "Adrenaline",
+    "category": "energy-lifestyle",
+    "traits": {
+      "energy": 90,
+      "darkness": 40,
+      "romance": 5,
+      "sadness": 5,
+      "aggression": 70,
+      "focus": 50
+    },
+    "queries": [
+      "adrenaline rush",
+      "adrenaline junkie",
+      "rush and thrill",
+      "intense energy"
+    ]
+  },
+  {
+    "id": "gaming",
+    "name": "Gaming",
+    "category": "energy-lifestyle",
+    "traits": {
+      "energy": 80,
+      "darkness": 30,
+      "romance": 5,
+      "sadness": 5,
+      "aggression": 60,
+      "focus": 85
+    },
+    "queries": [
+      "gaming playlist",
+      "video game beats",
+      "gaming grind",
+      "esports energy"
+    ]
+  },
+  {
+    "id": "focus",
+    "name": "Focus",
+    "category": "energy-lifestyle",
+    "traits": {
+      "energy": 70,
+      "darkness": 20,
+      "romance": 5,
+      "sadness": 5,
+      "aggression": 30,
+      "focus": 90
+    },
+    "queries": [
+      "focus playlist",
+      "deep work",
+      "concentration beats",
+      "study music"
+    ]
+  },
+  {
+    "id": "night-drive",
+    "name": "Night Drive",
+    "category": "energy-lifestyle",
+    "traits": {
+      "energy": 60,
+      "darkness": 50,
+      "romance": 30,
+      "sadness": 30,
+      "aggression": 30,
+      "focus": 60
+    },
+    "queries": [
+      "night drive playlist",
+      "driving at night",
+      "highway vibes",
+      "late night drive"
+    ]
+  },
+  {
+    "id": "chill",
+    "name": "Chill",
+    "category": "energy-lifestyle",
+    "traits": {
+      "energy": 35,
+      "darkness": 15,
+      "romance": 30,
+      "sadness": 15,
+      "aggression": 5,
+      "focus": 40
+    },
+    "queries": [
+      "chill playlist",
+      "chill vibes",
+      "relaxing beats",
+      "laid back energy"
+    ]
+  },
+  {
+    "id": "dreamy",
+    "name": "Dreamy",
+    "category": "energy-lifestyle",
+    "traits": {
+      "energy": 45,
+      "darkness": 20,
+      "romance": 45,
+      "sadness": 25,
+      "aggression": 5,
+      "focus": 35
+    },
+    "queries": [
+      "dreamy playlist",
+      "dreamy aesthetic",
+      "ethereal vibes",
+      "floating feeling"
+    ]
+  },
+  {
+    "id": "peaceful",
+    "name": "Peaceful",
+    "category": "energy-lifestyle",
+    "traits": {
+      "energy": 25,
+      "darkness": 5,
+      "romance": 25,
+      "sadness": 15,
+      "aggression": 0,
+      "focus": 50
+    },
+    "queries": [
+      "peaceful playlist",
+      "inner peace",
+      "calm and serene",
+      "tranquility beats"
+    ]
+  },
+  {
+    "id": "cyberpunk",
+    "name": "Cyberpunk",
+    "category": "cinematic",
+    "traits": {
+      "energy": 80,
+      "darkness": 70,
+      "romance": 15,
+      "sadness": 25,
+      "aggression": 70,
+      "focus": 65
+    },
+    "queries": [
+      "cyberpunk aesthetic",
+      "futuristic dark",
+      "neon energy",
+      "cyberpunk vibes"
+    ]
+  },
+  {
+    "id": "anime-fight",
+    "name": "Anime Fight",
+    "category": "cinematic",
+    "traits": {
+      "energy": 85,
+      "darkness": 50,
+      "romance": 10,
+      "sadness": 15,
+      "aggression": 85,
+      "focus": 70
+    },
+    "queries": [
+      "anime fight playlist",
+      "battle soundtrack",
+      "anime epic",
+      "fight animation beats"
+    ]
+  },
+  {
+    "id": "final-boss",
+    "name": "Final Boss",
+    "category": "cinematic",
+    "traits": {
+      "energy": 85,
+      "darkness": 75,
+      "romance": 10,
+      "sadness": 20,
+      "aggression": 80,
+      "focus": 75
+    },
+    "queries": [
+      "final boss theme",
+      "ultimate battle",
+      "boss fight energy",
+      "last stand"
+    ]
+  },
+  {
+    "id": "training-arc",
+    "name": "Training Arc",
+    "category": "cinematic",
+    "traits": {
+      "energy": 75,
+      "darkness": 40,
+      "romance": 15,
+      "sadness": 20,
+      "aggression": 70,
+      "focus": 80
+    },
+    "queries": [
+      "training arc",
+      "montage energy",
+      "power up playlist",
+      "self improvement"
+    ]
+  },
+  {
+    "id": "villain-arc",
+    "name": "Villain Arc",
+    "category": "cinematic",
+    "traits": {
+      "energy": 75,
+      "darkness": 85,
+      "romance": 15,
+      "sadness": 35,
+      "aggression": 75,
+      "focus": 60
+    },
+    "queries": [
+      "villain arc",
+      "origin story evil",
+      "how I became the villain",
+      "dark transformation"
+    ]
+  },
+  {
+    "id": "hero-arc",
+    "name": "Hero Arc",
+    "category": "cinematic",
+    "traits": {
+      "energy": 80,
+      "darkness": 40,
+      "romance": 20,
+      "sadness": 20,
+      "aggression": 70,
+      "focus": 75
+    },
+    "queries": [
+      "hero journey",
+      "hero's theme",
+      "becoming a hero",
+      "epic hero playlist"
+    ]
+  },
+  {
+    "id": "glow-up",
+    "name": "Glow Up",
+    "category": "cinematic",
+    "traits": {
+      "energy": 80,
+      "darkness": 30,
+      "romance": 25,
+      "sadness": 15,
+      "aggression": 60,
+      "focus": 70
+    },
+    "queries": [
+      "glow up energy",
+      "transformation playlist",
+      "level up anthem",
+      "main character rise"
+    ]
+  },
+  {
+    "id": "locked-in",
+    "name": "Locked In",
+    "category": "cinematic",
+    "traits": {
+      "energy": 80,
+      "darkness": 40,
+      "romance": 5,
+      "sadness": 10,
+      "aggression": 70,
+      "focus": 90
+    },
+    "queries": [
+      "locked in",
+      "zone energy",
+      "unstoppable focus",
+      "flow state playlist"
+    ]
+  },
+  {
+    "id": "comeback",
+    "name": "Comeback",
+    "category": "cinematic",
+    "traits": {
+      "energy": 85,
+      "darkness": 45,
+      "romance": 15,
+      "sadness": 25,
+      "aggression": 75,
+      "focus": 75
+    },
+    "queries": [
+      "comeback playlist",
+      "comeback season",
+      "rising from ashes",
+      "redemption arc"
+    ]
+  },
+  {
+    "id": "alone-at-night",
+    "name": "Alone at Night",
+    "category": "cinematic",
+    "traits": {
+      "energy": 50,
+      "darkness": 70,
+      "romance": 20,
+      "sadness": 60,
+      "aggression": 30,
+      "focus": 50
+    },
+    "queries": [
+      "alone at night",
+      "solitude aesthetic",
+      "nighttime solitude",
+      "lonely nights"
+    ]
+  }
+]
