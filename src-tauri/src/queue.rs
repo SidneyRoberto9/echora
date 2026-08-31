@@ -27,6 +27,13 @@ impl Queue {
         }
     }
 
+    /// Every track in the queue's lifetime, in order — current, past, and
+    /// upcoming. Unlike `upcoming()` (only what's left to play), this is what
+    /// "save the whole session as a Scene" needs to capture.
+    pub fn all_tracks(&self) -> &[Track] {
+        &self.items
+    }
+
     /// The current track's ordinal position in this queue's lifetime —
     /// used as the `position` argument to `Db::record_play`, so replaying
     /// the same slot after going back and forward just overwrites that
@@ -268,5 +275,15 @@ mod tests {
         q.clear();
         assert_eq!(q.current(), None);
         assert!(q.upcoming().is_empty());
+    }
+
+    #[test]
+    fn all_tracks_returns_every_track_regardless_of_position() {
+        let mut q = Queue::new();
+        q.add_candidates([track("a"), track("b"), track("c")]);
+        q.next(); // current is now "b" — "a" is in the past
+
+        let all: Vec<&str> = q.all_tracks().iter().map(|t| t.id.as_str()).collect();
+        assert_eq!(all, vec!["a", "b", "c"]);
     }
 }

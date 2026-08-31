@@ -81,6 +81,18 @@ pub struct MoodPlayCount {
     pub play_count: i64,
 }
 
+/// A saved, frozen snapshot of a queue — see docs/superpowers/specs/
+/// 2026-08-31-scenes-design.md. Never exposes the track list itself over
+/// IPC; the frontend only ever needs the name/count to display and an id
+/// to trigger playback with.
+#[derive(Debug, Clone, Serialize)]
+pub struct SceneSummary {
+    pub id: i64,
+    pub name: String,
+    pub created_at: i64,
+    pub track_count: u32,
+}
+
 /// One category's share of all-time sessions (e.g. "dark", "power").
 #[derive(Debug, Clone, Serialize)]
 pub struct CategoryBreakdown {
