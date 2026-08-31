@@ -89,6 +89,7 @@ mod tests {
                 PathBuf::from("mpv"),
                 PathBuf::from("/tmp/echora-test-unused.sock"),
             )),
+            mpris: None,
         }
     }
 

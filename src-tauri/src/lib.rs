@@ -5,6 +5,7 @@ mod media;
 mod models;
 mod mood_engine;
 mod moods;
+mod platform;
 mod queue;
 mod state;
 
@@ -24,6 +25,7 @@ fn greet(name: &str) -> String {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_autostart::Builder::new().build())
         .setup(|app| {
             let app_dir = app
                 .path()
@@ -48,13 +50,30 @@ pub fn run() {
             let player =
                 media::player::Player::new(sidecar_paths.mpv, app_dir.join("mpv-ipc.sock"));
 
+            let mpris =
+                tauri::async_runtime::block_on(platform::mpris::build(app.handle().clone()));
+
             app.manage(AppState {
                 db: Mutex::new(db),
                 queue: Mutex::new(queue::Queue::new()),
                 moods,
                 resolver,
                 player: tokio::sync::Mutex::new(player),
+                mpris,
             });
+
+            platform::tray::setup(app)?;
+
+            // Keep the OS-level autostart entry truthful to the saved
+            // setting even if it drifted (manually removed, fresh profile).
+            let autostart_enabled = app
+                .state::<AppState>()
+                .db
+                .lock()
+                .unwrap()
+                .get_settings()?
+                .autostart_enabled;
+            platform::autostart::sync(app.handle(), autostart_enabled)?;
 
             Ok(())
         })

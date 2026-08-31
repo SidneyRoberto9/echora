@@ -45,6 +45,21 @@ pub(crate) async fn resolve_and_load(state: &AppState, track: &Track) -> Result<
         player.start().await?;
     }
     player.load(&resolved.stream_url).await?;
+    drop(player);
+    crate::platform::mpris::notify(state).await;
+    Ok(())
+}
+
+/// Toggles play/pause, used by both the tray menu and MPRIS's `PlayPause`
+/// method — the one place that needs to know the *current* paused state to
+/// decide which way to flip it (MPRIS's own `Play`/`Pause` are directed and
+/// don't need this).
+pub(crate) async fn toggle_play_pause(state: &AppState) -> Result<()> {
+    let player = state.player.lock().await;
+    let paused = player.is_paused().await?.unwrap_or(false);
+    player.set_paused(!paused).await?;
+    drop(player);
+    crate::platform::mpris::notify(state).await;
     Ok(())
 }
 

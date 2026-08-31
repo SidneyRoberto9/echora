@@ -42,6 +42,9 @@ pub enum EchoraError {
 
     #[error("{0} did not respond in time")]
     SidecarTimeout(String),
+
+    #[error("autostart error: {0}")]
+    Autostart(String),
 }
 
 pub type Result<T> = std::result::Result<T, EchoraError>;
@@ -68,6 +71,7 @@ impl EchoraError {
             EchoraError::Metadata(_) => "metadata_error",
             EchoraError::TrackUnavailable(_) => "track_unavailable",
             EchoraError::SidecarTimeout(_) => "sidecar_timeout",
+            EchoraError::Autostart(_) => "autostart_error",
         }
     }
 }

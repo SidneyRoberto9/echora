@@ -102,10 +102,22 @@ impl Player {
         Ok(())
     }
 
+    pub async fn is_paused(&self) -> Result<Option<bool>> {
+        let reply = self.send_command(json!(["get_property", "pause"])).await?;
+        Ok(reply.get("data").and_then(Value::as_bool))
+    }
+
     pub async fn set_volume(&self, volume_percent: u8) -> Result<()> {
         self.send_command(json!(["set_property", "volume", volume_percent]))
             .await?;
         Ok(())
+    }
+
+    /// mpv's own volume percentage (0-100+), for callers that need to read
+    /// it back rather than only set it — e.g. MPRIS's `Volume` property.
+    pub async fn volume_percent(&self) -> Result<Option<u8>> {
+        let reply = self.send_command(json!(["get_property", "volume"])).await?;
+        Ok(reply.get("data").and_then(Value::as_f64).map(|v| v as u8))
     }
 
     pub async fn seek_to(&self, seconds: f64) -> Result<()> {

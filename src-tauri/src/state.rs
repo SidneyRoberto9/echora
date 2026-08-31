@@ -4,6 +4,7 @@ use crate::db::Db;
 use crate::media::player::Player;
 use crate::media::resolver::Resolver;
 use crate::moods::MoodCatalog;
+use crate::platform::mpris;
 use crate::queue::Queue;
 
 /// Rust's source of truth for product state. Each field keeps its own
@@ -19,4 +20,7 @@ pub struct AppState {
     pub moods: MoodCatalog,
     pub resolver: Resolver,
     pub player: tokio::sync::Mutex<Player>,
+    /// `None` when the D-Bus session bus wasn't reachable at startup — MPRIS
+    /// is a nice-to-have desktop integration, never a startup requirement.
+    pub mpris: Option<mpris::Handle>,
 }

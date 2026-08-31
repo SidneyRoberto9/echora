@@ -14,22 +14,30 @@ pub async fn play_track(state: State<'_, AppState>, track_id: String) -> Result<
         player.start().await?;
     }
     player.load(&resolved.stream_url).await?;
+    drop(player);
+    crate::platform::mpris::notify(&state).await;
     Ok(())
 }
 
 #[tauri::command]
 pub async fn pause_playback(state: State<'_, AppState>) -> Result<()> {
-    state.player.lock().await.set_paused(true).await
+    state.player.lock().await.set_paused(true).await?;
+    crate::platform::mpris::notify(&state).await;
+    Ok(())
 }
 
 #[tauri::command]
 pub async fn resume_playback(state: State<'_, AppState>) -> Result<()> {
-    state.player.lock().await.set_paused(false).await
+    state.player.lock().await.set_paused(false).await?;
+    crate::platform::mpris::notify(&state).await;
+    Ok(())
 }
 
 #[tauri::command]
 pub async fn seek_playback(state: State<'_, AppState>, seconds: f64) -> Result<()> {
-    state.player.lock().await.seek_to(seconds).await
+    state.player.lock().await.seek_to(seconds).await?;
+    crate::platform::mpris::notify(&state).await;
+    Ok(())
 }
 
 #[tauri::command]
