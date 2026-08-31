@@ -97,6 +97,7 @@ pub fn run() {
             commands::queue::queue_skip_to,
             commands::queue::queue_remove,
             commands::queue::ensure_queue_topped_up,
+            commands::queue::play_single_track,
             commands::library::favorite_track,
             commands::library::unfavorite_track,
             commands::library::is_track_favorited,

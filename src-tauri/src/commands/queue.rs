@@ -82,3 +82,122 @@ pub async fn ensure_queue_topped_up(state: State<'_, AppState>) -> Result<()> {
 
     super::top_up_queue(&state, &mood_id).await
 }
+
+/// Clears the way for an ad-hoc single-track play: ends the active
+/// session if there is one (a favorited-track replay isn't tied to a
+/// mood, so it doesn't start a new one), or clears the queue directly if
+/// there wasn't one — either way leaving the queue empty before the
+/// caller adds the new track as `current`.
+///
+/// The "no session" branch matters on its own: without it, a second
+/// favorited-track click while one ad-hoc track is already playing (no
+/// session was ever started for it) would append behind that track
+/// instead of replacing it, since `Queue::add_candidates` only makes a
+/// track current when nothing is current yet.
+pub(crate) fn make_room_for_single_track(state: &AppState) -> Result<()> {
+    if state.db.lock().unwrap().current_session()?.is_some() {
+        super::session::end_session_impl(state)?;
+    } else {
+        state.queue.lock().unwrap().clear();
+    }
+    Ok(())
+}
+
+/// Plays a single track outside of any mood session — used for replaying
+/// a favorited track from Discover. See `make_room_for_single_track` for
+/// why this can't just call `commands::playback::play_track` directly.
+#[tauri::command]
+pub async fn play_single_track(state: State<'_, AppState>, track: Track) -> Result<()> {
+    make_room_for_single_track(&state)?;
+    state.queue.lock().unwrap().add_candidates([track.clone()]);
+    super::resolve_and_load(&state, &track).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::Db;
+    use crate::media::player::Player;
+    use crate::media::resolver::{Resolver, ResolverConfig};
+    use crate::moods::MoodCatalog;
+    use crate::queue::Queue;
+    use std::path::PathBuf;
+    use std::sync::Mutex;
+    use std::time::Duration;
+
+    fn test_state() -> AppState {
+        AppState {
+            db: Mutex::new(Db::open_in_memory().unwrap()),
+            queue: Mutex::new(Queue::new()),
+            moods: MoodCatalog::load().unwrap(),
+            resolver: Resolver::new(ResolverConfig {
+                yt_dlp_path: PathBuf::from("yt-dlp"),
+                deno_path: PathBuf::from("deno"),
+                timeout: Duration::from_secs(30),
+            }),
+            player: tokio::sync::Mutex::new(Player::new(
+                PathBuf::from("mpv"),
+                PathBuf::from("/tmp/echora-test-queue-unused.sock"),
+            )),
+            mpris: None,
+        }
+    }
+
+    fn track(id: &str) -> Track {
+        Track {
+            id: id.into(),
+            title: id.into(),
+            artist: None,
+            duration_seconds: None,
+            thumbnail_url: None,
+        }
+    }
+
+    #[test]
+    fn make_room_for_single_track_ends_an_active_session_and_clears_its_queue() {
+        let state = test_state();
+        let mood_id = state.moods.list()[0].id.clone();
+        state.db.lock().unwrap().start_session(&mood_id).unwrap();
+        state
+            .queue
+            .lock()
+            .unwrap()
+            .add_candidates([track("a"), track("b")]);
+
+        make_room_for_single_track(&state).unwrap();
+
+        assert!(
+            state
+                .db
+                .lock()
+                .unwrap()
+                .current_session()
+                .unwrap()
+                .is_none()
+        );
+        assert!(state.queue.lock().unwrap().current().is_none());
+    }
+
+    #[test]
+    fn make_room_for_single_track_clears_a_leftover_ad_hoc_track_with_no_session() {
+        let state = test_state();
+        state
+            .queue
+            .lock()
+            .unwrap()
+            .add_candidates([track("leftover")]);
+        assert!(
+            state
+                .db
+                .lock()
+                .unwrap()
+                .current_session()
+                .unwrap()
+                .is_none()
+        );
+
+        make_room_for_single_track(&state).unwrap();
+
+        assert!(state.queue.lock().unwrap().current().is_none());
+    }
+}
