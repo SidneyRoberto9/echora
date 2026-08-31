@@ -764,6 +764,7 @@ a:hover {
   justify-content: space-between;
   gap: 14px;
   padding: 12px 14px;
+  min-height: 44px;
   border-radius: var(--radius-md);
   width: 100%;
   text-align: left;
