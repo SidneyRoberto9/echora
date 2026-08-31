@@ -4,7 +4,7 @@ use rusqlite::OptionalExtension;
 
 use super::{Db, now};
 use crate::error::Result;
-use crate::models::{SessionInfo, SessionSummary, Track};
+use crate::models::{MoodPlayCount, SessionInfo, SessionSummary, Track};
 
 impl Db {
     /// Deletes every session (and, via `ON DELETE CASCADE`, every
@@ -24,6 +24,24 @@ impl Db {
         let rows = stmt.query_map([session_limit], |row| row.get(0))?;
         rows.collect::<rusqlite::Result<HashSet<_>>>()
             .map_err(Into::into)
+    }
+
+    /// All-time play count per mood, descending — the "most played moods"
+    /// ranking shown in Discover. Unlike `recent_mood_ids` (a bounded recent
+    /// window, existence-only, used for Surprise Me diversity), this is an
+    /// unbounded count used for display.
+    pub fn mood_play_counts(&self) -> Result<Vec<MoodPlayCount>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT mood_id, COUNT(*) as play_count FROM sessions
+             GROUP BY mood_id ORDER BY play_count DESC",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok(MoodPlayCount {
+                mood_id: r.get(0)?,
+                play_count: r.get(1)?,
+            })
+        })?;
+        rows.collect::<rusqlite::Result<Vec<_>>>().map_err(Into::into)
     }
 
     /// Ends any currently-open session, then starts a new one for `mood_id`.
@@ -216,5 +234,22 @@ mod tests {
         let sessions = db.list_sessions(10, 0).unwrap();
         let row = sessions.iter().find(|s| s.id == session.id).unwrap();
         assert_eq!(row.track_count, 2);
+    }
+
+    #[test]
+    fn mood_play_counts_ranks_moods_by_session_count_descending() {
+        let db = Db::open_in_memory().unwrap();
+        assert!(db.mood_play_counts().unwrap().is_empty());
+
+        db.start_session("villain").unwrap();
+        db.start_session("villain").unwrap();
+        db.start_session("focus").unwrap();
+
+        let counts = db.mood_play_counts().unwrap();
+        assert_eq!(counts.len(), 2);
+        assert_eq!(counts[0].mood_id, "villain");
+        assert_eq!(counts[0].play_count, 2);
+        assert_eq!(counts[1].mood_id, "focus");
+        assert_eq!(counts[1].play_count, 1);
     }
 }

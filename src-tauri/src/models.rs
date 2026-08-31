@@ -74,6 +74,13 @@ pub struct SessionSummary {
     pub track_count: u32,
 }
 
+/// All-time play count for one mood — the "most played moods" ranking.
+#[derive(Debug, Clone, Serialize)]
+pub struct MoodPlayCount {
+    pub mood_id: String,
+    pub play_count: i64,
+}
+
 /// A resolved, playable stream. Deliberately never persisted — YouTube
 /// stream URLs expire, so this only ever lives in memory for the duration
 /// of a single playback (see docs/adr — never save stream URLs as durable).
