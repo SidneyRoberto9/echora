@@ -1,0 +1,47 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Rust / Tauri
+/src-tauri/target
+/src-tauri/gen
+Cargo.lock.bak
+
+# Bundled sidecar binaries (built/downloaded by CI or build scripts,
+# tracked via checksums in docs/, not committed as binaries)
+/src-tauri/binaries/*
+!/src-tauri/binaries/.gitkeep
+
+# App runtime data (local dev only)
+*.sqlite
+*.sqlite-journal
+*.db
+
+# Secrets — never commit
+*.pem
+*.key
+.env
+.env.*
+!.env.example
+
