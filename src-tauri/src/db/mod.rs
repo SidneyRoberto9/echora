@@ -1,4 +1,5 @@
 mod library;
+mod scenes;
 mod scoring_signals;
 mod sessions;
 mod settings;
