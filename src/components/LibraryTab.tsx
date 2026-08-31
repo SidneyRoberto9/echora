@@ -1,7 +1,10 @@
+import { useState } from "react";
 import { EmptyState } from "./EmptyState";
 import { EmptyQueueIcon } from "./icons";
+import { NameModal } from "./NameModal";
+import { api } from "../lib/api";
 import type { useDiscover } from "../hooks/useDiscover";
-import type { MoodSummary, Track } from "../lib/api";
+import type { MoodSummary, SceneSummary, Track } from "../lib/api";
 
 interface LibraryTabProps {
   discover: ReturnType<typeof useDiscover>;
@@ -10,6 +13,8 @@ interface LibraryTabProps {
   startingTrackId: string | null;
   onStartMood: (moodId: string) => void;
   onPlayTrack: (track: Track) => void;
+  onPlayScene: (sceneId: number) => void;
+  onError: (message: string) => void;
 }
 
 function formatDate(unixSeconds: number): string {
@@ -37,11 +42,37 @@ export function LibraryTab({
   startingTrackId,
   onStartMood,
   onPlayTrack,
+  onPlayScene,
+  onError,
 }: LibraryTabProps) {
-  const { history, favoriteMoodIds, favoriteTracks, mostPlayedMoods, loading } = discover;
+  const { history, favoriteMoodIds, favoriteTracks, mostPlayedMoods, scenes, refreshScenes, loading } =
+    discover;
   const moodsById = new Map(moods.map((m) => [m.id, m]));
   const moodName = (moodId: string) => moodsById.get(moodId)?.name ?? "Unknown mood";
   const busy = startingMoodId !== null || startingTrackId !== null;
+
+  const [renameTarget, setRenameTarget] = useState<SceneSummary | null>(null);
+
+  const handleRename = async (name: string) => {
+    if (!renameTarget) return;
+    try {
+      await api.renameScene(renameTarget.id, name);
+      await refreshScenes();
+    } catch (err) {
+      onError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRenameTarget(null);
+    }
+  };
+
+  const handleDelete = async (sceneId: number) => {
+    try {
+      await api.deleteScene(sceneId);
+      await refreshScenes();
+    } catch (err) {
+      onError(err instanceof Error ? err.message : String(err));
+    }
+  };
 
   if (loading) {
     return (
@@ -56,7 +87,8 @@ export function LibraryTab({
     history.length === 0 &&
     favoriteMoodIds.length === 0 &&
     favoriteTracks.length === 0 &&
-    mostPlayedMoods.length === 0
+    mostPlayedMoods.length === 0 &&
+    scenes.length === 0
   ) {
     return (
       <div className="library-tab">
@@ -154,6 +186,54 @@ export function LibraryTab({
           ))
         )}
       </section>
+
+      <section className="library-section">
+        <h2 className="mood-row__title">Scenes</h2>
+        {scenes.length === 0 ? (
+          <EmptySection message="No saved scenes yet" />
+        ) : (
+          scenes.map((scene) => (
+            <div className="library-row" key={scene.id}>
+              <button
+                type="button"
+                className="library-row__play"
+                disabled={busy}
+                onClick={() => onPlayScene(scene.id)}
+              >
+                <span className="library-row__title">{scene.name}</span>
+                <span className="library-row__meta">{scene.track_count} tracks</span>
+              </button>
+              <span className="library-row__actions">
+                <button
+                  type="button"
+                  className="library-row__action"
+                  aria-label={`Rename ${scene.name}`}
+                  onClick={() => setRenameTarget(scene)}
+                >
+                  Rename
+                </button>
+                <button
+                  type="button"
+                  className="library-row__action"
+                  aria-label={`Delete ${scene.name}`}
+                  onClick={() => handleDelete(scene.id)}
+                >
+                  Delete
+                </button>
+              </span>
+            </div>
+          ))
+        )}
+      </section>
+
+      {renameTarget ? (
+        <NameModal
+          title="Rename scene"
+          initialValue={renameTarget.name}
+          onConfirm={handleRename}
+          onCancel={() => setRenameTarget(null)}
+        />
+      ) : null}
     </div>
   );
 }
