@@ -101,6 +101,7 @@ impl Queue {
         QueueView {
             current: self.current().cloned(),
             upcoming: self.upcoming().to_vec(),
+            position: self.position,
         }
     }
 }

@@ -87,6 +87,10 @@ pub struct ResolvedStream {
 pub struct QueueView {
     pub current: Option<Track>,
     pub upcoming: Vec<Track>,
+    /// The current track's absolute position in the queue — callers need
+    /// this to translate an `upcoming` index back into the absolute index
+    /// `queue_skip_to`/`queue_remove` expect (`position + 1 + i`).
+    pub position: Option<usize>,
 }
 
 /// User-configurable settings, persisted as a single JSON blob (see
