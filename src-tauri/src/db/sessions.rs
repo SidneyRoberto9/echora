@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use rusqlite::OptionalExtension;
 
 use super::{Db, now};
@@ -5,6 +7,17 @@ use crate::error::Result;
 use crate::models::{SessionInfo, SessionSummary, Track};
 
 impl Db {
+    /// Distinct moods used in the most recent `session_limit` sessions —
+    /// used by "Surprise Me" to deprioritize moods played very recently.
+    pub fn recent_mood_ids(&self, session_limit: i64) -> Result<HashSet<String>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT mood_id FROM sessions ORDER BY id DESC LIMIT ?1")?;
+        let rows = stmt.query_map([session_limit], |row| row.get(0))?;
+        rows.collect::<rusqlite::Result<HashSet<_>>>()
+            .map_err(Into::into)
+    }
+
     /// Ends any currently-open session, then starts a new one for `mood_id`.
     pub fn start_session(&self, mood_id: &str) -> Result<SessionInfo> {
         self.conn.execute(
@@ -106,6 +119,17 @@ impl Db {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn recent_mood_ids_reflects_the_last_n_sessions_only() {
+        let db = Db::open_in_memory().unwrap();
+        db.start_session("old-mood").unwrap();
+        db.start_session("recent-mood").unwrap();
+
+        let recent = db.recent_mood_ids(1).unwrap();
+        assert!(recent.contains("recent-mood"));
+        assert!(!recent.contains("old-mood"));
+    }
 
     fn track(id: &str) -> Track {
         Track {
