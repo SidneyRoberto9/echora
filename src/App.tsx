@@ -1,50 +1,106 @@
-import { useState } from "react";
-import reactLogo from "./assets/react.svg";
-import { invoke } from "@tauri-apps/api/core";
-import "./App.css";
+import { useCallback, useState } from "react";
+import { TopBar } from "./components/TopBar";
+import { HomeView } from "./components/HomeView";
+import { QueueView } from "./components/QueueView";
+import { SettingsView } from "./components/SettingsView";
+import { MiniPlayerBar } from "./components/MiniPlayerBar";
+import { PlayerView } from "./components/PlayerView";
+import { ErrorBanner } from "./components/ErrorBanner";
+import { usePlayback } from "./hooks/usePlayback";
+import { useMoods } from "./hooks/useMoods";
+import { api } from "./lib/api";
+
+export type View = "home" | "queue" | "settings";
+
+function messageOf(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
 
 function App() {
-  const [greetMsg, setGreetMsg] = useState("");
-  const [name, setName] = useState("");
+  const [view, setView] = useState<View>("home");
+  const [playerExpanded, setPlayerExpanded] = useState(false);
+  const [startingMoodId, setStartingMoodId] = useState<string | null>(null);
+  const [currentMoodId, setCurrentMoodId] = useState<string | null>(null);
+  const [globalError, setGlobalError] = useState<string | null>(null);
 
-  async function greet() {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    setGreetMsg(await invoke("greet", { name }));
-  }
+  const playback = usePlayback();
+  const moodsData = useMoods();
+
+  const reportError = useCallback((message: string) => setGlobalError(message), []);
+
+  const handleStartMood = useCallback(
+    async (moodId: string) => {
+      setStartingMoodId(moodId);
+      try {
+        const session = await api.startMoodSession(moodId);
+        setCurrentMoodId(session.mood_id);
+        await playback.refreshQueue();
+        setPlayerExpanded(true);
+      } catch (err) {
+        reportError(messageOf(err));
+      } finally {
+        setStartingMoodId(null);
+      }
+    },
+    [playback, reportError],
+  );
+
+  const handleSurpriseMe = useCallback(async () => {
+    setStartingMoodId("surprise");
+    try {
+      const session = await api.surpriseMe();
+      setCurrentMoodId(session.mood_id);
+      await playback.refreshQueue();
+      setPlayerExpanded(true);
+    } catch (err) {
+      reportError(messageOf(err));
+    } finally {
+      setStartingMoodId(null);
+    }
+  }, [playback, reportError]);
+
+  const currentMoodName = moodsData.moods.find((m) => m.id === currentMoodId)?.name ?? null;
 
   return (
-    <main className="container">
-      <h1>Welcome to Tauri + React</h1>
+    <div className="app-shell">
+      <TopBar view={view} onChangeView={setView} />
 
-      <div className="row">
-        <a href="https://vite.dev" target="_blank">
-          <img src="/vite.svg" className="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img src="/tauri.svg" className="logo tauri" alt="Tauri logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
+      {globalError ? (
+        <div style={{ paddingTop: 12 }}>
+          <ErrorBanner message={globalError} />
+        </div>
+      ) : null}
+
+      <div className="view-content">
+        {view === "home" ? (
+          <HomeView
+            moodsData={moodsData}
+            onError={reportError}
+            startingMoodId={startingMoodId}
+            onStartMood={handleStartMood}
+            onSurpriseMe={handleSurpriseMe}
+          />
+        ) : null}
+        {view === "queue" ? <QueueView playback={playback} /> : null}
+        {view === "settings" ? <SettingsView onError={reportError} /> : null}
       </div>
-      <p>Click on the Tauri, Vite, and React logos to learn more.</p>
 
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          greet();
-        }}
-      >
-        <input
-          id="greet-input"
-          onChange={(e) => setName(e.currentTarget.value)}
-          placeholder="Enter a name..."
+      {playback.queue.current ? (
+        <MiniPlayerBar playback={playback} onExpand={() => setPlayerExpanded(true)} />
+      ) : null}
+
+      {playerExpanded ? (
+        <PlayerView
+          playback={playback}
+          moodName={currentMoodName}
+          onCollapse={() => setPlayerExpanded(false)}
+          onOpenQueue={() => {
+            setPlayerExpanded(false);
+            setView("queue");
+          }}
         />
-        <button type="submit">Greet</button>
-      </form>
-      <p>{greetMsg}</p>
-    </main>
+      ) : null}
+    </div>
   );
 }
 

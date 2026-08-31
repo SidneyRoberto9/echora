@@ -1,0 +1,127 @@
+import { invoke } from "@tauri-apps/api/core";
+
+export interface Track {
+  id: string;
+  title: string;
+  artist: string | null;
+  duration_seconds: number | null;
+  thumbnail_url: string | null;
+}
+
+export interface MoodTraits {
+  energy: number;
+  darkness: number;
+  romance: number;
+  sadness: number;
+  aggression: number;
+  focus: number;
+}
+
+export interface MoodSummary {
+  id: string;
+  name: string;
+  category: string;
+  traits: MoodTraits;
+}
+
+export interface SessionInfo {
+  id: number;
+  mood_id: string;
+  started_at: number;
+  ended_at: number | null;
+}
+
+export interface SessionSummary extends SessionInfo {
+  track_count: number;
+}
+
+export interface QueueView {
+  current: Track | null;
+  upcoming: Track[];
+  /** Absolute index of `current` in the queue — `upcoming[i]` sits at
+   * `position + 1 + i`, needed to call `queueSkipTo`/`queueRemove`. */
+  position: number | null;
+}
+
+export interface Settings {
+  cache_limit_mb: number;
+  history_enabled: boolean;
+  crash_report_enabled: boolean;
+  autostart_enabled: boolean;
+  sponsorblock_categories: string[];
+}
+
+interface ErrorPayload {
+  code: string;
+  message: string;
+}
+
+/** Thrown for every failed command — `code` is the stable string to switch
+ * on, matching `EchoraError::code()` on the Rust side. */
+export class ApiError extends Error {
+  code: string;
+  constructor(payload: ErrorPayload) {
+    super(payload.message);
+    this.code = payload.code;
+  }
+}
+
+function isErrorPayload(value: unknown): value is ErrorPayload {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "code" in value &&
+    "message" in value
+  );
+}
+
+async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  try {
+    return await invoke<T>(cmd, args);
+  } catch (err) {
+    if (isErrorPayload(err)) throw new ApiError(err);
+    throw err;
+  }
+}
+
+export const api = {
+  listMoods: () => call<MoodSummary[]>("list_moods"),
+  surpriseMe: () => call<SessionInfo>("surprise_me"),
+
+  getSettings: () => call<Settings>("get_settings"),
+  updateSettings: (settings: Settings) => call<void>("update_settings", { settings }),
+
+  startMoodSession: (moodId: string) => call<SessionInfo>("start_mood_session", { moodId }),
+  endSession: () => call<void>("end_session"),
+  getCurrentSession: () => call<SessionInfo | null>("get_current_session"),
+  listHistory: (limit: number, offset: number) =>
+    call<SessionSummary[]>("list_history", { limit, offset }),
+  clearHistory: () => call<void>("clear_history"),
+
+  getQueue: () => call<QueueView>("get_queue"),
+  queueNext: () => call<Track | null>("queue_next"),
+  queuePrevious: () => call<Track | null>("queue_previous"),
+  queueSkipTo: (index: number) => call<Track>("queue_skip_to", { index }),
+  queueRemove: (index: number) => call<void>("queue_remove", { index }),
+  ensureQueueToppedUp: () => call<void>("ensure_queue_topped_up"),
+
+  favoriteTrack: (track: Track) => call<void>("favorite_track", { track }),
+  unfavoriteTrack: (trackId: string) => call<void>("unfavorite_track", { trackId }),
+  isTrackFavorited: (trackId: string) => call<boolean>("is_track_favorited", { trackId }),
+  favoriteMood: (moodId: string) => call<void>("favorite_mood", { moodId }),
+  unfavoriteMood: (moodId: string) => call<void>("unfavorite_mood", { moodId }),
+  listFavoriteMoods: () => call<string[]>("list_favorite_moods"),
+  setTrackFeedback: (track: Track, liked: boolean) =>
+    call<void>("set_track_feedback", { track, liked }),
+  getTrackFeedback: (trackId: string) => call<boolean | null>("get_track_feedback", { trackId }),
+
+  searchTracks: (query: string, limit: number) => call<Track[]>("search_tracks", { query, limit }),
+
+  playTrack: (trackId: string) => call<void>("play_track", { trackId }),
+  pausePlayback: () => call<void>("pause_playback"),
+  resumePlayback: () => call<void>("resume_playback"),
+  seekPlayback: (seconds: number) => call<void>("seek_playback", { seconds }),
+  setPlaybackVolume: (volume: number) => call<void>("set_playback_volume", { volume }),
+  getPlaybackPosition: () => call<number | null>("get_playback_position"),
+  getPlaybackDuration: () => call<number | null>("get_playback_duration"),
+};
