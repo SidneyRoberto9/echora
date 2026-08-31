@@ -55,10 +55,24 @@ mod tests {
     use std::sync::Mutex;
 
     fn test_state() -> AppState {
+        use crate::media::player::Player;
+        use crate::media::resolver::{Resolver, ResolverConfig};
+        use std::path::PathBuf;
+        use std::time::Duration;
+
         AppState {
             db: Mutex::new(Db::open_in_memory().unwrap()),
             queue: Mutex::new(Queue::new()),
             moods: MoodCatalog::load().unwrap(),
+            resolver: Resolver::new(ResolverConfig {
+                yt_dlp_path: PathBuf::from("yt-dlp"),
+                deno_path: PathBuf::from("deno"),
+                timeout: Duration::from_secs(30),
+            }),
+            player: tokio::sync::Mutex::new(Player::new(
+                PathBuf::from("mpv"),
+                PathBuf::from("/tmp/echora-test-unused.sock"),
+            )),
         }
     }
 

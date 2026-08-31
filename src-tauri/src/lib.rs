@@ -1,6 +1,7 @@
 mod commands;
 mod db;
 mod error;
+mod media;
 mod models;
 mod moods;
 mod queue;
@@ -37,10 +38,21 @@ pub fn run() {
             .expect("database should open and migrate");
             let moods = moods::MoodCatalog::load().expect("bundled moods.json should load");
 
+            let sidecar_paths = media::sidecar_paths::SidecarPaths::discover_dev();
+            let resolver = media::resolver::Resolver::new(media::resolver::ResolverConfig {
+                yt_dlp_path: sidecar_paths.yt_dlp,
+                deno_path: sidecar_paths.deno,
+                timeout: std::time::Duration::from_secs(30),
+            });
+            let player =
+                media::player::Player::new(sidecar_paths.mpv, app_dir.join("mpv-ipc.sock"));
+
             app.manage(AppState {
                 db: Mutex::new(db),
                 queue: Mutex::new(queue::Queue::new()),
                 moods,
+                resolver,
+                player: tokio::sync::Mutex::new(player),
             });
 
             Ok(())
@@ -67,7 +79,27 @@ pub fn run() {
             commands::library::list_favorite_moods,
             commands::library::set_track_feedback,
             commands::library::get_track_feedback,
+            commands::search::search_tracks,
+            commands::playback::play_track,
+            commands::playback::pause_playback,
+            commands::playback::resume_playback,
+            commands::playback::seek_playback,
+            commands::playback::set_playback_volume,
+            commands::playback::get_playback_position,
+            commands::playback::get_playback_duration,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            // No orphaned mpv process on quit: this runs once, right before
+            // the process actually exits, regardless of which window/tray
+            // action triggered it.
+            if let tauri::RunEvent::Exit = event
+                && let Some(state) = app_handle.try_state::<AppState>()
+            {
+                tauri::async_runtime::block_on(async {
+                    let _ = state.player.lock().await.shutdown().await;
+                });
+            }
+        });
 }
