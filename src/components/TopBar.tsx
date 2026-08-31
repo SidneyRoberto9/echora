@@ -1,4 +1,5 @@
-import { HomeIcon, QueueIcon, SettingsIcon } from "./icons";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { CloseIcon, HomeIcon, QueueIcon, SettingsIcon } from "./icons";
 import type { View } from "../App";
 
 interface TopBarProps {
@@ -8,8 +9,8 @@ interface TopBarProps {
 
 export function TopBar({ view, onChangeView }: TopBarProps) {
   return (
-    <div className="top-bar">
-      <div className="top-bar__brand">
+    <div className="top-bar" data-tauri-drag-region>
+      <div className="top-bar__brand" data-tauri-drag-region>
         <span className="brand-mark" aria-hidden="true" />
         <span>echora</span>
       </div>
@@ -40,6 +41,17 @@ export function TopBar({ view, onChangeView }: TopBarProps) {
           onClick={() => onChangeView("settings")}
         >
           <SettingsIcon />
+        </button>
+        <span className="top-bar__nav-divider" aria-hidden="true" />
+        <button
+          type="button"
+          className="nav-icon-btn nav-icon-btn--close"
+          aria-label="Close Echora"
+          onClick={() => {
+            getCurrentWindow().close();
+          }}
+        >
+          <CloseIcon size={15} />
         </button>
       </nav>
     </div>

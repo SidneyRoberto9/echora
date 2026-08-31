@@ -125,6 +125,18 @@ a:hover {
   color: var(--text-primary);
 }
 
+.top-bar__nav-divider {
+  width: 1px;
+  height: 20px;
+  background: var(--border);
+  margin: 0 4px;
+}
+
+.nav-icon-btn--close:hover {
+  background: var(--danger);
+  color: oklch(97% 0 0);
+}
+
 .view-content {
   flex: 1;
   overflow-y: auto;
@@ -226,10 +238,29 @@ a:hover {
 .mood-card.is-favorited {
   border: 1px solid oklch(70% 0.14 300 / 0.4);
 }
+.mood-card:disabled {
+  cursor: default;
+}
+.mood-card:disabled:not(.is-loading) {
+  opacity: 0.4;
+}
 .mood-card__dot {
   width: 8px;
   height: 8px;
   border-radius: 999px;
+}
+.mood-card__spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  border: 2px solid oklch(45% 0.02 290);
+  border-top-color: var(--accent);
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 .mood-card__name {
   font-size: 14px;
@@ -409,11 +440,15 @@ a:hover {
 
 .track-meta {
   text-align: center;
+  max-width: min(560px, 80vw);
 }
 .track-meta__title {
   font-size: 28px;
   font-weight: 600;
   letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .track-meta__artist {
   font-size: 14px;
