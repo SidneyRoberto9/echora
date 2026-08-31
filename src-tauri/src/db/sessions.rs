@@ -41,7 +41,8 @@ impl Db {
                 play_count: r.get(1)?,
             })
         })?;
-        rows.collect::<rusqlite::Result<Vec<_>>>().map_err(Into::into)
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(Into::into)
     }
 
     /// Aggregate listening stats. `total_seconds_listened` treats a NULL
@@ -56,10 +57,16 @@ impl Db {
             |r| r.get(0),
         )?;
         let total_sessions: i64 =
-            self.conn.query_row("SELECT COUNT(*) FROM sessions", [], |r| r.get(0))?;
+            self.conn
+                .query_row("SELECT COUNT(*) FROM sessions", [], |r| r.get(0))?;
         let total_tracks_played: i64 =
-            self.conn.query_row("SELECT COUNT(*) FROM session_tracks", [], |r| r.get(0))?;
-        let top_mood_id = self.mood_play_counts()?.into_iter().next().map(|m| m.mood_id);
+            self.conn
+                .query_row("SELECT COUNT(*) FROM session_tracks", [], |r| r.get(0))?;
+        let top_mood_id = self
+            .mood_play_counts()?
+            .into_iter()
+            .next()
+            .map(|m| m.mood_id);
 
         Ok(ListeningStats {
             total_seconds_listened,
@@ -297,7 +304,8 @@ mod tests {
 
         let mut half_played = track("a");
         half_played.duration_seconds = Some(200);
-        db.record_play(session.id, &half_played, 0, Some(0.5)).unwrap(); // 100s
+        db.record_play(session.id, &half_played, 0, Some(0.5))
+            .unwrap(); // 100s
 
         let mut unrecorded = track("b");
         unrecorded.duration_seconds = Some(100);

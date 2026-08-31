@@ -35,6 +35,11 @@ pub fn list_favorite_moods(state: State<AppState>) -> Result<Vec<String>> {
 }
 
 #[tauri::command]
+pub fn list_favorite_tracks(state: State<AppState>) -> Result<Vec<Track>> {
+    state.db.lock().unwrap().list_favorite_tracks()
+}
+
+#[tauri::command]
 pub fn set_track_feedback(state: State<AppState>, track: Track, liked: bool) -> Result<()> {
     state.db.lock().unwrap().set_track_feedback(&track, liked)
 }

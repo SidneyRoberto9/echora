@@ -78,7 +78,8 @@ impl Db {
                 thumbnail_url: r.get(4)?,
             })
         })?;
-        rows.collect::<rusqlite::Result<Vec<_>>>().map_err(Into::into)
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(Into::into)
     }
 
     pub fn set_track_feedback(&self, track: &Track, liked: bool) -> Result<()> {

@@ -1,7 +1,9 @@
 use tauri::State;
 
 use crate::error::{EchoraError, Result};
-use crate::models::{SessionInfo, SessionSummary};
+use crate::models::{
+    CategoryBreakdown, ListeningStats, MoodPlayCount, SessionInfo, SessionSummary,
+};
 use crate::state::AppState;
 
 /// Plain function (not `#[tauri::command]`) so it's testable without a real
@@ -59,6 +61,47 @@ pub fn list_history(
 #[tauri::command]
 pub fn clear_history(state: State<AppState>) -> Result<()> {
     state.db.lock().unwrap().clear_history()
+}
+
+#[tauri::command]
+pub fn list_most_played_moods(state: State<AppState>) -> Result<Vec<MoodPlayCount>> {
+    state.db.lock().unwrap().mood_play_counts()
+}
+
+/// Plain function (not `#[tauri::command]`) so the category-grouping logic
+/// is testable without a real Tauri `App` — mirrors `start_session_impl`.
+/// `Db::listening_stats` can't do this grouping itself: it never
+/// references `MoodCatalog` (moods are bundled static data, not a DB
+/// concern — see ADR 0008), so this command layer maps each `mood_id` in
+/// the ranking to its category, silently skipping any id no longer in the
+/// loaded catalog (a mood renamed/removed across an app update) rather
+/// than failing the whole stats view over one stale id.
+pub(crate) fn build_listening_stats(state: &AppState) -> Result<ListeningStats> {
+    let mut stats = state.db.lock().unwrap().listening_stats()?;
+    let ranking = state.db.lock().unwrap().mood_play_counts()?;
+
+    let mut by_category: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
+    for entry in ranking {
+        if let Ok(mood) = state.moods.get(&entry.mood_id) {
+            *by_category.entry(mood.category.clone()).or_insert(0) += entry.play_count;
+        }
+    }
+    let mut breakdown: Vec<CategoryBreakdown> = by_category
+        .into_iter()
+        .map(|(category, session_count)| CategoryBreakdown {
+            category,
+            session_count,
+        })
+        .collect();
+    breakdown.sort_by_key(|entry| std::cmp::Reverse(entry.session_count));
+
+    stats.category_breakdown = breakdown;
+    Ok(stats)
+}
+
+#[tauri::command]
+pub fn get_listening_stats(state: State<AppState>) -> Result<ListeningStats> {
+    build_listening_stats(&state)
 }
 
 #[cfg(test)]
@@ -123,6 +166,27 @@ mod tests {
         let state = test_state();
         let err = end_session_impl(&state).unwrap_err();
         assert!(matches!(err, EchoraError::NoActiveSession));
+    }
+
+    #[test]
+    fn build_listening_stats_groups_play_counts_by_category_skipping_unknown_moods() {
+        let state = test_state();
+        let mood = state.moods.list()[0].clone();
+
+        state.db.lock().unwrap().start_session(&mood.id).unwrap();
+        state
+            .db
+            .lock()
+            .unwrap()
+            .start_session("not-a-real-mood")
+            .unwrap();
+
+        let stats = build_listening_stats(&state).unwrap();
+
+        assert_eq!(stats.total_sessions, 2);
+        assert_eq!(stats.category_breakdown.len(), 1);
+        assert_eq!(stats.category_breakdown[0].category, mood.category);
+        assert_eq!(stats.category_breakdown[0].session_count, 1);
     }
 
     #[test]
