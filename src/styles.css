@@ -819,3 +819,51 @@ a:hover {
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
+
+/* ---------- Modal ---------- */
+
+.modal-scrim {
+  position: fixed;
+  inset: 0;
+  background: oklch(0% 0 0 / 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+}
+.modal-panel {
+  width: min(340px, 84vw);
+  background: var(--bg-elevated);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.modal-panel__title {
+  font-size: 14px;
+  font-weight: 600;
+}
+.modal-input {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 14px;
+}
+.modal-input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.modal-panel__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 16px;
+}
+.modal-panel__actions .text-link:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
