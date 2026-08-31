@@ -12,21 +12,28 @@ const CATEGORY_COLOR: Record<string, string> = {
 interface MoodCardProps {
   mood: MoodSummary;
   favorited?: boolean;
+  loading?: boolean;
+  disabled?: boolean;
   onSelect: (moodId: string) => void;
 }
 
-export function MoodCard({ mood, favorited, onSelect }: MoodCardProps) {
+export function MoodCard({ mood, favorited, loading, disabled, onSelect }: MoodCardProps) {
   return (
     <button
       type="button"
-      className={`mood-card${favorited ? " is-favorited" : ""}`}
+      className={`mood-card${favorited ? " is-favorited" : ""}${loading ? " is-loading" : ""}`}
+      disabled={disabled}
       onClick={() => onSelect(mood.id)}
     >
-      <span
-        className="mood-card__dot"
-        style={{ background: CATEGORY_COLOR[mood.category] ?? "oklch(70% 0.05 290)" }}
-        aria-hidden="true"
-      />
+      {loading ? (
+        <span className="mood-card__spinner" aria-hidden="true" />
+      ) : (
+        <span
+          className="mood-card__dot"
+          style={{ background: CATEGORY_COLOR[mood.category] ?? "oklch(70% 0.05 290)" }}
+          aria-hidden="true"
+        />
+      )}
       <span className="mood-card__name">{mood.name}</span>
     </button>
   );

@@ -44,6 +44,17 @@ export function HomeView({ moodsData, onError, startingMoodId, onStartMood, onSu
 
   const busy = startingMoodId !== null;
 
+  const renderMoodCard = (mood: MoodSummary) => (
+    <MoodCard
+      key={mood.id}
+      mood={mood}
+      favorited={favoriteMoodIds.has(mood.id)}
+      loading={startingMoodId === mood.id}
+      disabled={busy}
+      onSelect={onStartMood}
+    />
+  );
+
   return (
     <div className="home-view">
       <button
@@ -78,32 +89,14 @@ export function HomeView({ moodsData, onError, startingMoodId, onStartMood, onSu
           {forYouMoods.length > 0 ? (
             <div className="mood-row">
               <h2 className="mood-row__title">For You</h2>
-              <div className="mood-row__scroll">
-                {forYouMoods.map((mood) => (
-                  <MoodCard
-                    key={mood.id}
-                    mood={mood}
-                    favorited={favoriteMoodIds.has(mood.id)}
-                    onSelect={onStartMood}
-                  />
-                ))}
-              </div>
+              <div className="mood-row__scroll">{forYouMoods.map(renderMoodCard)}</div>
             </div>
           ) : null}
 
           {categories.map((category) => (
             <div className="mood-row" key={category.key}>
               <h2 className="mood-row__title">{CATEGORY_LABEL[category.key] ?? category.key}</h2>
-              <div className="mood-row__scroll">
-                {category.moods.map((mood) => (
-                  <MoodCard
-                    key={mood.id}
-                    mood={mood}
-                    favorited={favoriteMoodIds.has(mood.id)}
-                    onSelect={onStartMood}
-                  />
-                ))}
-              </div>
+              <div className="mood-row__scroll">{category.moods.map(renderMoodCard)}</div>
             </div>
           ))}
         </>
