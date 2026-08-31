@@ -74,6 +74,15 @@ pub struct SessionSummary {
     pub track_count: u32,
 }
 
+/// A resolved, playable stream. Deliberately never persisted — YouTube
+/// stream URLs expire, so this only ever lives in memory for the duration
+/// of a single playback (see docs/adr — never save stream URLs as durable).
+#[derive(Debug, Clone, Serialize)]
+pub struct ResolvedStream {
+    pub track_id: String,
+    pub stream_url: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct QueueView {
     pub current: Option<Track>,

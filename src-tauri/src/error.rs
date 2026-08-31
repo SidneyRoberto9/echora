@@ -33,6 +33,15 @@ pub enum EchoraError {
 
     #[error("unknown mood: {0}")]
     UnknownMood(String),
+
+    #[error("malformed sidecar output: {0}")]
+    Metadata(String),
+
+    #[error("track unavailable: {0}")]
+    TrackUnavailable(String),
+
+    #[error("{0} did not respond in time")]
+    SidecarTimeout(String),
 }
 
 pub type Result<T> = std::result::Result<T, EchoraError>;
@@ -56,6 +65,9 @@ impl EchoraError {
             EchoraError::QueueIndexOutOfBounds(_) => "queue_index_out_of_bounds",
             EchoraError::NoActiveSession => "no_active_session",
             EchoraError::UnknownMood(_) => "unknown_mood",
+            EchoraError::Metadata(_) => "metadata_error",
+            EchoraError::TrackUnavailable(_) => "track_unavailable",
+            EchoraError::SidecarTimeout(_) => "sidecar_timeout",
         }
     }
 }
