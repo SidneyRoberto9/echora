@@ -37,6 +37,19 @@ both x86_64 and ARM64:
    job on `ubuntu-24.04-arm` for ARM64 — both build mpv, then the app,
    then package `.deb` + AppImage, natively.
 
+## Update (Fase 3)
+While validating real playback, a third-party community project
+(`pkgforge-dev/mpv-AppImage`) was found publishing self-contained mpv
+AppImages for *both* x86_64 and aarch64 — contrary to what was assumed
+above. It was tried and rejected for the shipped artifact: it runs its
+own auto-update check on startup (an unpinned, uncontrolled network call
+Echora doesn't want happening inside a bundled dependency) and isn't
+checksum-pinned the way this ADR requires. It's a useful data point that
+an aarch64 mpv bundle is achievable at all, but the source stays "build
+it ourselves in CI," not this AppImage. Local dev/testing instead used
+the distro's plain `mpv` package, which has none of this problem since
+it's just invoked directly, unmodified, with no wrapper.
+
 ## Consequences
 - mpv becomes a build artifact Echora's own CI produces and
   checksum-tracks per release, not a binary fetched from a third party —
