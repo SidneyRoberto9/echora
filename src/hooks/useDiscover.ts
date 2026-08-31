@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   api,
   type ListeningStats,
   type MoodPlayCount,
+  type SceneSummary,
   type SessionSummary,
   type Track,
 } from "../lib/api";
@@ -22,6 +23,7 @@ export function useDiscover() {
   const [favoriteTracks, setFavoriteTracks] = useState<Track[]>([]);
   const [mostPlayedMoods, setMostPlayedMoods] = useState<MoodPlayCount[]>([]);
   const [stats, setStats] = useState<ListeningStats | null>(null);
+  const [scenes, setScenes] = useState<SceneSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -29,19 +31,22 @@ export function useDiscover() {
     let cancelled = false;
     (async () => {
       try {
-        const [historyList, favoriteMoods, favTracks, mostPlayed, listeningStats] = await Promise.all([
-          api.listHistory(20, 0),
-          api.listFavoriteMoods(),
-          api.listFavoriteTracks(),
-          api.listMostPlayedMoods(),
-          api.getListeningStats(),
-        ]);
+        const [historyList, favoriteMoods, favTracks, mostPlayed, listeningStats, sceneList] =
+          await Promise.all([
+            api.listHistory(20, 0),
+            api.listFavoriteMoods(),
+            api.listFavoriteTracks(),
+            api.listMostPlayedMoods(),
+            api.getListeningStats(),
+            api.listScenes(),
+          ]);
         if (!cancelled) {
           setHistory(historyList);
           setFavoriteMoodIds(favoriteMoods);
           setFavoriteTracks(favTracks);
           setMostPlayedMoods(mostPlayed);
           setStats(listeningStats);
+          setScenes(sceneList);
         }
       } catch (err) {
         if (!cancelled) setError(messageOf(err));
@@ -54,5 +59,23 @@ export function useDiscover() {
     };
   }, []);
 
-  return { history, favoriteMoodIds, favoriteTracks, mostPlayedMoods, stats, loading, error };
+  const refreshScenes = useCallback(async () => {
+    try {
+      setScenes(await api.listScenes());
+    } catch (err) {
+      setError(messageOf(err));
+    }
+  }, []);
+
+  return {
+    history,
+    favoriteMoodIds,
+    favoriteTracks,
+    mostPlayedMoods,
+    stats,
+    scenes,
+    refreshScenes,
+    loading,
+    error,
+  };
 }
