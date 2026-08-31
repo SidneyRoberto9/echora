@@ -6,11 +6,13 @@ import { SettingsView } from "./components/SettingsView";
 import { MiniPlayerBar } from "./components/MiniPlayerBar";
 import { PlayerView } from "./components/PlayerView";
 import { ErrorBanner } from "./components/ErrorBanner";
+import { DiscoverView } from "./components/DiscoverView";
 import { usePlayback } from "./hooks/usePlayback";
 import { useMoods } from "./hooks/useMoods";
 import { api } from "./lib/api";
+import type { Track } from "./lib/api";
 
-export type View = "home" | "queue" | "settings";
+export type View = "home" | "queue" | "discover" | "settings";
 
 function messageOf(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -20,6 +22,7 @@ function App() {
   const [view, setView] = useState<View>("home");
   const [playerExpanded, setPlayerExpanded] = useState(false);
   const [startingMoodId, setStartingMoodId] = useState<string | null>(null);
+  const [startingTrackId, setStartingTrackId] = useState<string | null>(null);
   const [currentMoodId, setCurrentMoodId] = useState<string | null>(null);
   const [globalError, setGlobalError] = useState<string | null>(null);
 
@@ -40,6 +43,23 @@ function App() {
         reportError(messageOf(err));
       } finally {
         setStartingMoodId(null);
+      }
+    },
+    [playback, reportError],
+  );
+
+  const handlePlayTrack = useCallback(
+    async (track: Track) => {
+      setStartingTrackId(track.id);
+      try {
+        await api.playSingleTrack(track);
+        setCurrentMoodId(null);
+        await playback.refreshQueue();
+        setPlayerExpanded(true);
+      } catch (err) {
+        reportError(messageOf(err));
+      } finally {
+        setStartingTrackId(null);
       }
     },
     [playback, reportError],
@@ -82,6 +102,15 @@ function App() {
           />
         ) : null}
         {view === "queue" ? <QueueView playback={playback} /> : null}
+        {view === "discover" ? (
+          <DiscoverView
+            onError={reportError}
+            startingMoodId={startingMoodId}
+            startingTrackId={startingTrackId}
+            onStartMood={handleStartMood}
+            onPlayTrack={handlePlayTrack}
+          />
+        ) : null}
         {view === "settings" ? <SettingsView onError={reportError} /> : null}
       </div>
 

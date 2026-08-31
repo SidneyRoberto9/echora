@@ -30,6 +30,13 @@ export const SettingsIcon = ({ size = 18 }: IconProps) => (
   </svg>
 );
 
+export const DiscoverIcon = ({ size = 18 }: IconProps) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" {...stroke} aria-hidden="true">
+    <circle cx="12" cy="12" r="9" />
+    <path d="M15.5 8.5 13 13l-4.5 2.5L11 11l4.5-2.5Z" />
+  </svg>
+);
+
 export const PlayIcon = ({ size = 14 }: IconProps) => (
   <svg width={size * 0.9} height={size} viewBox="0 0 16 18" fill="currentColor" aria-hidden="true">
     <path d="M0 0 16 9 0 18Z" />

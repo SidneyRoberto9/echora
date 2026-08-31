@@ -1,5 +1,5 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { CloseIcon, HomeIcon, QueueIcon, SettingsIcon } from "./icons";
+import { CloseIcon, DiscoverIcon, HomeIcon, QueueIcon, SettingsIcon } from "./icons";
 import type { View } from "../App";
 
 interface TopBarProps {
@@ -32,6 +32,15 @@ export function TopBar({ view, onChangeView }: TopBarProps) {
           onClick={() => onChangeView("queue")}
         >
           <QueueIcon />
+        </button>
+        <button
+          type="button"
+          className={`nav-icon-btn${view === "discover" ? " is-active" : ""}`}
+          aria-current={view === "discover" || undefined}
+          aria-label="Discover"
+          onClick={() => onChangeView("discover")}
+        >
+          <DiscoverIcon />
         </button>
         <button
           type="button"
