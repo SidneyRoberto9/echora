@@ -59,6 +59,28 @@ impl Db {
             .map_err(Into::into)
     }
 
+    /// Favorited tracks, most recently favorited first. Mirrors
+    /// `list_favorite_moods`'s shape but returns full `Track` rows (joined
+    /// from `tracks`) since the frontend needs title/artist/thumbnail to
+    /// render and play them, not just an id.
+    pub fn list_favorite_tracks(&self) -> Result<Vec<Track>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT t.id, t.title, t.artist, t.duration_seconds, t.thumbnail_url
+             FROM track_favorites f JOIN tracks t ON t.id = f.track_id
+             ORDER BY f.favorited_at DESC",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok(Track {
+                id: r.get(0)?,
+                title: r.get(1)?,
+                artist: r.get(2)?,
+                duration_seconds: r.get(3)?,
+                thumbnail_url: r.get(4)?,
+            })
+        })?;
+        rows.collect::<rusqlite::Result<Vec<_>>>().map_err(Into::into)
+    }
+
     pub fn set_track_feedback(&self, track: &Track, liked: bool) -> Result<()> {
         self.upsert_track(track)?;
         self.conn.execute(
@@ -149,6 +171,25 @@ mod tests {
             db.list_favorite_moods().unwrap(),
             vec!["villain".to_string()]
         );
+    }
+
+    #[test]
+    fn list_favorite_tracks_returns_favorited_tracks_with_full_fields() {
+        let db = Db::open_in_memory().unwrap();
+        assert!(db.list_favorite_tracks().unwrap().is_empty());
+
+        let mut a = track("a");
+        a.title = "Song A".into();
+        a.artist = Some("Artist A".into());
+        db.favorite_track(&a).unwrap();
+        db.favorite_track(&track("b")).unwrap();
+        db.unfavorite_track("b").unwrap();
+
+        let favorites = db.list_favorite_tracks().unwrap();
+        assert_eq!(favorites.len(), 1);
+        assert_eq!(favorites[0].id, "a");
+        assert_eq!(favorites[0].title, "Song A");
+        assert_eq!(favorites[0].artist.as_deref(), Some("Artist A"));
     }
 
     #[test]
