@@ -81,6 +81,26 @@ pub struct MoodPlayCount {
     pub play_count: i64,
 }
 
+/// One category's share of all-time sessions (e.g. "dark", "power").
+#[derive(Debug, Clone, Serialize)]
+pub struct CategoryBreakdown {
+    pub category: String,
+    pub session_count: i64,
+}
+
+/// Aggregate listening stats shown in Discover's Statistics tab.
+/// `category_breakdown` is always empty coming out of `Db` — grouping by
+/// category needs `MoodCatalog`, which lives outside the DB layer (see
+/// ADR 0008); `commands::session::build_listening_stats` fills it in.
+#[derive(Debug, Clone, Serialize)]
+pub struct ListeningStats {
+    pub total_seconds_listened: i64,
+    pub total_sessions: i64,
+    pub total_tracks_played: i64,
+    pub top_mood_id: Option<String>,
+    pub category_breakdown: Vec<CategoryBreakdown>,
+}
+
 /// A resolved, playable stream. Deliberately never persisted — YouTube
 /// stream URLs expire, so this only ever lives in memory for the duration
 /// of a single playback (see docs/adr — never save stream URLs as durable).

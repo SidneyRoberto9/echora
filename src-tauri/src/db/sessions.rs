@@ -4,7 +4,7 @@ use rusqlite::OptionalExtension;
 
 use super::{Db, now};
 use crate::error::Result;
-use crate::models::{MoodPlayCount, SessionInfo, SessionSummary, Track};
+use crate::models::{ListeningStats, MoodPlayCount, SessionInfo, SessionSummary, Track};
 
 impl Db {
     /// Deletes every session (and, via `ON DELETE CASCADE`, every
@@ -42,6 +42,32 @@ impl Db {
             })
         })?;
         rows.collect::<rusqlite::Result<Vec<_>>>().map_err(Into::into)
+    }
+
+    /// Aggregate listening stats. `total_seconds_listened` treats a NULL
+    /// `completion_pct` (a play that ended without recording completion — the
+    /// app closing mid-track, a crash) as 0 contribution rather than the full
+    /// track length, since we don't actually know how much was heard.
+    pub fn listening_stats(&self) -> Result<ListeningStats> {
+        let total_seconds_listened: i64 = self.conn.query_row(
+            "SELECT CAST(COALESCE(SUM(t.duration_seconds * COALESCE(st.completion_pct, 0)), 0) AS INTEGER)
+             FROM session_tracks st JOIN tracks t ON t.id = st.track_id",
+            [],
+            |r| r.get(0),
+        )?;
+        let total_sessions: i64 =
+            self.conn.query_row("SELECT COUNT(*) FROM sessions", [], |r| r.get(0))?;
+        let total_tracks_played: i64 =
+            self.conn.query_row("SELECT COUNT(*) FROM session_tracks", [], |r| r.get(0))?;
+        let top_mood_id = self.mood_play_counts()?.into_iter().next().map(|m| m.mood_id);
+
+        Ok(ListeningStats {
+            total_seconds_listened,
+            total_sessions,
+            total_tracks_played,
+            top_mood_id,
+            category_breakdown: Vec::new(),
+        })
     }
 
     /// Ends any currently-open session, then starts a new one for `mood_id`.
@@ -251,5 +277,36 @@ mod tests {
         assert_eq!(counts[0].play_count, 2);
         assert_eq!(counts[1].mood_id, "focus");
         assert_eq!(counts[1].play_count, 1);
+    }
+
+    #[test]
+    fn listening_stats_on_empty_database_is_all_zero() {
+        let db = Db::open_in_memory().unwrap();
+        let stats = db.listening_stats().unwrap();
+        assert_eq!(stats.total_seconds_listened, 0);
+        assert_eq!(stats.total_sessions, 0);
+        assert_eq!(stats.total_tracks_played, 0);
+        assert_eq!(stats.top_mood_id, None);
+        assert!(stats.category_breakdown.is_empty());
+    }
+
+    #[test]
+    fn listening_stats_treats_unrecorded_completion_as_zero_seconds() {
+        let db = Db::open_in_memory().unwrap();
+        let session = db.start_session("villain").unwrap();
+
+        let mut half_played = track("a");
+        half_played.duration_seconds = Some(200);
+        db.record_play(session.id, &half_played, 0, Some(0.5)).unwrap(); // 100s
+
+        let mut unrecorded = track("b");
+        unrecorded.duration_seconds = Some(100);
+        db.record_play(session.id, &unrecorded, 1, None).unwrap(); // 0s — no completion recorded
+
+        let stats = db.listening_stats().unwrap();
+        assert_eq!(stats.total_seconds_listened, 100);
+        assert_eq!(stats.total_sessions, 1);
+        assert_eq!(stats.total_tracks_played, 2);
+        assert_eq!(stats.top_mood_id, Some("villain".to_string()));
     }
 }
