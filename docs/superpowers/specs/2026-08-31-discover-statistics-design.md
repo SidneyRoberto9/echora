@@ -141,10 +141,17 @@ Fix: one new command, `commands::queue::play_single_track`:
 /// this one track, and plays it. `queue_next` afterward finds nothing
 /// upcoming (matching a deliberately ad-hoc, non-session play) rather than
 /// pulling in mood-engine candidates.
+///
+/// The queue is always cleared first, whether or not a session was active
+/// — `end_session_impl` only clears it on the session path, and a second
+/// `play_single_track` call (no session, one leftover ad-hoc track already
+/// current) must still replace that track rather than queuing up behind it.
 #[tauri::command]
 pub async fn play_single_track(state: State<'_, AppState>, track: Track) -> Result<()> {
     if state.db.lock().unwrap().current_session()?.is_some() {
         super::session::end_session_impl(&state)?;
+    } else {
+        state.queue.lock().unwrap().clear();
     }
     state.queue.lock().unwrap().add_candidates([track.clone()]);
     super::resolve_and_load(&state, &track).await
