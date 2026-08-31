@@ -7,6 +7,14 @@ use crate::error::Result;
 use crate::models::{SessionInfo, SessionSummary, Track};
 
 impl Db {
+    /// Deletes every session (and, via `ON DELETE CASCADE`, every
+    /// `session_tracks` row) — the Settings "clear all history" action.
+    /// Favorites and feedback are untouched; only playback history goes.
+    pub fn clear_history(&self) -> Result<()> {
+        self.conn.execute("DELETE FROM sessions", [])?;
+        Ok(())
+    }
+
     /// Distinct moods used in the most recent `session_limit` sessions —
     /// used by "Surprise Me" to deprioritize moods played very recently.
     pub fn recent_mood_ids(&self, session_limit: i64) -> Result<HashSet<String>> {
@@ -91,10 +99,6 @@ impl Db {
 
     /// Upserts the track and records it as played at `position` within
     /// `session_id`.
-    ///
-    /// No caller yet — the playback controller (Fase 3) records real plays
-    /// as they happen; exercised directly by this module's tests until then.
-    #[allow(dead_code)]
     pub fn record_play(
         &self,
         session_id: i64,
@@ -119,6 +123,19 @@ impl Db {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn clear_history_removes_sessions_and_cascades_to_session_tracks() {
+        let db = Db::open_in_memory().unwrap();
+        let session = db.start_session("villain").unwrap();
+        db.record_play(session.id, &track("a"), 0, Some(1.0))
+            .unwrap();
+
+        db.clear_history().unwrap();
+
+        assert!(db.list_sessions(10, 0).unwrap().is_empty());
+        assert!(db.avg_completion_by_track().unwrap().is_empty());
+    }
 
     #[test]
     fn recent_mood_ids_reflects_the_last_n_sessions_only() {

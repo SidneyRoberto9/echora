@@ -29,6 +29,7 @@ pub(crate) fn now() -> i64 {
 impl Db {
     pub fn open(path: &str) -> Result<Self> {
         let mut conn = Connection::open(path)?;
+        conn.execute("PRAGMA foreign_keys = ON", [])?;
         migrations().to_latest(&mut conn)?;
         Ok(Db { conn })
     }
@@ -38,6 +39,7 @@ impl Db {
     #[cfg(test)]
     pub fn open_in_memory() -> Result<Self> {
         let mut conn = Connection::open_in_memory()?;
+        conn.execute("PRAGMA foreign_keys = ON", [])?;
         migrations().to_latest(&mut conn)?;
         Ok(Db { conn })
     }
