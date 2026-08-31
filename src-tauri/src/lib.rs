@@ -69,6 +69,7 @@ pub fn run() {
             commands::session::end_session,
             commands::session::get_current_session,
             commands::session::list_history,
+            commands::session::clear_history,
             commands::queue::get_queue,
             commands::queue::queue_next,
             commands::queue::queue_previous,

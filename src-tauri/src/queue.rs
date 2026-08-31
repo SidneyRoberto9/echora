@@ -27,12 +27,16 @@ impl Queue {
         }
     }
 
+    /// The current track's ordinal position in this queue's lifetime —
+    /// used as the `position` argument to `Db::record_play`, so replaying
+    /// the same slot after going back and forward just overwrites that
+    /// slot's history row instead of colliding.
+    pub fn position(&self) -> Option<usize> {
+        self.position
+    }
+
     /// Appends new candidates to the tail. If nothing is playing yet, the
     /// first appended track becomes current.
-    ///
-    /// No caller yet — the mood engine (Fase 4) resolves and pushes real
-    /// candidates here; exercised directly by this module's tests until then.
-    #[allow(dead_code)]
     pub fn add_candidates(&mut self, tracks: impl IntoIterator<Item = Track>) {
         self.items.extend(tracks);
         if self.position.is_none() && !self.items.is_empty() {
@@ -120,6 +124,16 @@ mod tests {
         let q = Queue::new();
         assert_eq!(q.current(), None);
         assert!(q.upcoming().is_empty());
+    }
+
+    #[test]
+    fn position_tracks_the_current_index() {
+        let mut q = Queue::new();
+        assert_eq!(q.position(), None);
+        q.add_candidates([track("a"), track("b")]);
+        assert_eq!(q.position(), Some(0));
+        q.next();
+        assert_eq!(q.position(), Some(1));
     }
 
     #[test]

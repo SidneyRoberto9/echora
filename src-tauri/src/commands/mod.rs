@@ -10,6 +10,7 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 
 use crate::error::Result;
+use crate::models::{SessionInfo, Track};
 use crate::mood_engine::{self, GenerationConfig};
 use crate::state::AppState;
 
@@ -32,4 +33,80 @@ pub(crate) async fn top_up_queue(state: &AppState, mood_id: &str) -> Result<()> 
         mood_engine::generate_candidates(mood, &state.resolver, &ctx, &config, &mut rng).await?;
     state.queue.lock().unwrap().add_candidates(candidates);
     Ok(())
+}
+
+/// Resolves `track` to a playable stream and hands it to the mpv sidecar,
+/// starting mpv on first use. The one place playback actually begins —
+/// every command that changes "what's current" routes through this.
+pub(crate) async fn resolve_and_load(state: &AppState, track: &Track) -> Result<()> {
+    let resolved = state.resolver.resolve_with_retry(&track.id).await?;
+    let mut player = state.player.lock().await;
+    if !player.is_started() {
+        player.start().await?;
+    }
+    player.load(&resolved.stream_url).await?;
+    Ok(())
+}
+
+/// Records how far the listener got into the currently-current track
+/// before it stops being current (advancing, going back, or the app
+/// closing mid-track). A no-op if there's no current track or no active
+/// session — nothing to attribute the play to.
+pub(crate) async fn record_current_completion(state: &AppState) -> Result<()> {
+    let snapshot = {
+        let queue = state.queue.lock().unwrap();
+        match (queue.current().cloned(), queue.position()) {
+            (Some(track), Some(position)) => Some((track, position)),
+            _ => None,
+        }
+    };
+    let Some((track, position)) = snapshot else {
+        return Ok(());
+    };
+
+    let session = state.db.lock().unwrap().current_session()?;
+    let Some(session) = session else {
+        return Ok(());
+    };
+
+    let elapsed = state
+        .player
+        .lock()
+        .await
+        .position_seconds()
+        .await
+        .unwrap_or(None);
+    let duration = state
+        .player
+        .lock()
+        .await
+        .duration_seconds()
+        .await
+        .unwrap_or(None);
+    let completion = match (elapsed, duration) {
+        (Some(e), Some(d)) if d > 0.0 => Some((e / d).clamp(0.0, 1.0)),
+        _ => None,
+    };
+
+    state
+        .db
+        .lock()
+        .unwrap()
+        .record_play(session.id, &track, position as u32, completion)?;
+    Ok(())
+}
+
+/// Starts a session for `mood_id`, fetches its first batch of candidates,
+/// and immediately starts playing the first one — shared by
+/// `start_mood_session` and `surprise_me`, which only differ in how they
+/// pick `mood_id`.
+pub(crate) async fn start_session_and_play(state: &AppState, mood_id: &str) -> Result<SessionInfo> {
+    let session = crate::commands::session::start_session_impl(state, mood_id)?;
+    top_up_queue(state, mood_id).await?;
+
+    let current = state.queue.lock().unwrap().current().cloned();
+    if let Some(track) = current {
+        resolve_and_load(state, &track).await?;
+    }
+    Ok(session)
 }

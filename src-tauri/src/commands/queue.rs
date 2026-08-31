@@ -15,19 +15,46 @@ pub fn get_queue(state: State<AppState>) -> QueueView {
     state.queue.lock().unwrap().view()
 }
 
+/// Records how the current track went, advances the queue, and starts
+/// playing whatever's now current — a no-op-ish `None` if the queue was
+/// already at its end (callers should top up and retry, or show an
+/// end-of-queue state).
 #[tauri::command]
-pub fn queue_next(state: State<AppState>) -> Option<Track> {
-    state.queue.lock().unwrap().next().cloned()
+pub async fn queue_next(state: State<'_, AppState>) -> Result<Option<Track>> {
+    super::record_current_completion(&state).await?;
+
+    let advanced = state.queue.lock().unwrap().next().cloned();
+    if let Some(track) = &advanced {
+        super::resolve_and_load(&state, track).await?;
+    }
+
+    // Best-effort: a stalled top-up shouldn't fail an otherwise-successful skip.
+    let _ = ensure_queue_topped_up(state.clone()).await;
+    Ok(advanced)
+}
+
+/// Goes back one track and starts playing it. `None` if already at the
+/// first track of the queue — callers should just seek the current track
+/// to 0 in that case rather than treating it as an error.
+#[tauri::command]
+pub async fn queue_previous(state: State<'_, AppState>) -> Result<Option<Track>> {
+    let went_back = state.queue.lock().unwrap().previous().cloned();
+    if let Some(track) = &went_back {
+        super::resolve_and_load(&state, track).await?;
+    }
+    Ok(went_back)
 }
 
 #[tauri::command]
-pub fn queue_previous(state: State<AppState>) -> Option<Track> {
-    state.queue.lock().unwrap().previous().cloned()
-}
+pub async fn queue_skip_to(state: State<'_, AppState>, index: usize) -> Result<Track> {
+    super::record_current_completion(&state).await?;
 
-#[tauri::command]
-pub fn queue_skip_to(state: State<AppState>, index: usize) -> Result<Track> {
-    state.queue.lock().unwrap().skip_to(index).cloned()
+    let track = {
+        let mut queue = state.queue.lock().unwrap();
+        queue.skip_to(index)?.clone()
+    };
+    super::resolve_and_load(&state, &track).await?;
+    Ok(track)
 }
 
 #[tauri::command]

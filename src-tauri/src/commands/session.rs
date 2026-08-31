@@ -26,17 +26,15 @@ pub fn start_session(state: State<AppState>, mood_id: String) -> Result<SessionI
     start_session_impl(&state, &mood_id)
 }
 
-/// The real "choose a mood, get music" entry point: creates the session
-/// (clearing any leftover queue) and immediately fetches the first batch
-/// of candidates for it — `start_session` alone only does the former.
+/// The real "choose a mood, get music" entry point: creates the session,
+/// fetches its first batch of candidates, and starts playing the first
+/// one — `start_session` alone only does the first of those three.
 #[tauri::command]
 pub async fn start_mood_session(
     state: State<'_, AppState>,
     mood_id: String,
 ) -> Result<SessionInfo> {
-    let session = start_session_impl(&state, &mood_id)?;
-    super::top_up_queue(&state, &mood_id).await?;
-    Ok(session)
+    super::start_session_and_play(&state, &mood_id).await
 }
 
 #[tauri::command]
@@ -56,6 +54,11 @@ pub fn list_history(
     offset: i64,
 ) -> Result<Vec<SessionSummary>> {
     state.db.lock().unwrap().list_sessions(limit, offset)
+}
+
+#[tauri::command]
+pub fn clear_history(state: State<AppState>) -> Result<()> {
+    state.db.lock().unwrap().clear_history()
 }
 
 #[cfg(test)]
