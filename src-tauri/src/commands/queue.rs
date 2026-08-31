@@ -1,7 +1,7 @@
 use tauri::State;
 
-use crate::error::Result;
-use crate::models::{QueueView, Track};
+use crate::error::{EchoraError, Result};
+use crate::models::{QueueView, SceneSummary, Track};
 use crate::state::AppState;
 
 /// Below this many upcoming tracks, ask the mood engine for more before
@@ -115,6 +115,49 @@ pub async fn play_single_track(state: State<'_, AppState>, track: Track) -> Resu
     super::resolve_and_load(&state, &track).await
 }
 
+pub(crate) fn save_scene_impl(state: &AppState, name: &str) -> Result<SceneSummary> {
+    let tracks = state.queue.lock().unwrap().all_tracks().to_vec();
+    if tracks.is_empty() {
+        return Err(EchoraError::QueueEmpty);
+    }
+    state.db.lock().unwrap().save_scene(name, &tracks)
+}
+
+#[tauri::command]
+pub fn save_scene(state: State<AppState>, name: String) -> Result<SceneSummary> {
+    save_scene_impl(&state, &name)
+}
+
+#[tauri::command]
+pub fn list_scenes(state: State<AppState>) -> Result<Vec<SceneSummary>> {
+    state.db.lock().unwrap().list_scenes()
+}
+
+pub(crate) async fn play_scene_impl(state: &AppState, scene_id: i64) -> Result<()> {
+    let tracks = state.db.lock().unwrap().scene_tracks(scene_id)?;
+    let Some(first) = tracks.first().cloned() else {
+        return Err(EchoraError::QueueEmpty);
+    };
+    make_room_for_single_track(state)?;
+    state.queue.lock().unwrap().add_candidates(tracks);
+    super::resolve_and_load(state, &first).await
+}
+
+#[tauri::command]
+pub async fn play_scene(state: State<'_, AppState>, scene_id: i64) -> Result<()> {
+    play_scene_impl(&state, scene_id).await
+}
+
+#[tauri::command]
+pub fn rename_scene(state: State<AppState>, scene_id: i64, name: String) -> Result<()> {
+    state.db.lock().unwrap().rename_scene(scene_id, &name)
+}
+
+#[tauri::command]
+pub fn delete_scene(state: State<AppState>, scene_id: i64) -> Result<()> {
+    state.db.lock().unwrap().delete_scene(scene_id)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -201,5 +244,28 @@ mod tests {
         make_room_for_single_track(&state).unwrap();
 
         assert!(state.queue.lock().unwrap().current().is_none());
+    }
+
+    #[test]
+    fn save_scene_impl_errors_on_an_empty_queue() {
+        let state = test_state();
+        let err = save_scene_impl(&state, "Empty").unwrap_err();
+        assert!(matches!(err, EchoraError::QueueEmpty));
+    }
+
+    #[test]
+    fn save_scene_impl_saves_the_whole_queue_including_past_tracks() {
+        let state = test_state();
+        state
+            .queue
+            .lock()
+            .unwrap()
+            .add_candidates([track("a"), track("b")]);
+        state.queue.lock().unwrap().next(); // "a" is now in the past
+
+        let summary = save_scene_impl(&state, "My Scene").unwrap();
+
+        assert_eq!(summary.name, "My Scene");
+        assert_eq!(summary.track_count, 2);
     }
 }

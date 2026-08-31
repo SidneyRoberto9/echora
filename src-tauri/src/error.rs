@@ -19,9 +19,6 @@ pub enum EchoraError {
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
 
-    /// No caller yet — raised by the mood engine (Fase 4) when the queue
-    /// runs out and no more candidates can be resolved.
-    #[allow(dead_code)]
     #[error("queue is empty")]
     QueueEmpty,
 
