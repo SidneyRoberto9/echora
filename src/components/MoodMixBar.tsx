@@ -19,7 +19,7 @@ export function MoodMixBar({ moods, weights, onChangeWeights, onStart, busy }: M
       const remainder = 100 - value;
       const previousRemainder = weights[1] + weights[2];
       const secondShare = previousRemainder > 0 ? weights[1] / previousRemainder : 0.5;
-      const second = Math.round(remainder * secondShare);
+      const second = Math.max(1, Math.min(remainder - 1, Math.round(remainder * secondShare)));
       onChangeWeights([value, second, remainder - second]);
     },
     [moods.length, weights, onChangeWeights],
@@ -56,8 +56,8 @@ export function MoodMixBar({ moods, weights, onChangeWeights, onStart, busy }: M
       {moods.length === 3 ? (
         <input
           type="range"
-          min={0}
-          max={100 - weights[0]}
+          min={1}
+          max={100 - weights[0] - 1}
           value={weights[1]}
           disabled={busy}
           onChange={(e) => handleSecondChange(Number(e.target.value))}
