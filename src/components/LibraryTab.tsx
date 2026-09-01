@@ -3,6 +3,7 @@ import { EmptyState } from "./EmptyState";
 import { EmptyQueueIcon } from "./icons";
 import { NameModal } from "./NameModal";
 import { api } from "../lib/api";
+import { formatSessionCount } from "../lib/formatSessionCount";
 import type { useDiscover } from "../hooks/useDiscover";
 import type { MoodSummary, SceneSummary, SessionMood, Track } from "../lib/api";
 
@@ -119,7 +120,7 @@ export function LibraryTab({
               onClick={() => onStartMood(entry.mood_id)}
             >
               <span className="library-row__title">{moodName(entry.mood_id)}</span>
-              <span className="library-row__meta">{Math.round(entry.play_count)} sessions</span>
+              <span className="library-row__meta">{formatSessionCount(entry.play_count)} sessions</span>
             </button>
           ))
         )}

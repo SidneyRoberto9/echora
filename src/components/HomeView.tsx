@@ -11,7 +11,7 @@ interface HomeViewProps {
   onError: (message: string) => void;
   startingMoodId: string | null;
   onStartMood: (moodId: string) => void;
-  onStartMix: (moods: SessionMood[]) => void;
+  onStartMix: (moods: SessionMood[]) => void | Promise<void>;
   onSurpriseMe: () => void;
 }
 
@@ -75,8 +75,8 @@ export function HomeView({
     setWeights([]);
   };
 
-  const handleStartMix = () => {
-    onStartMix(selectedMoodIds.map((id, i) => ({ mood_id: id, weight: weights[i] })));
+  const handleStartMix = async () => {
+    await onStartMix(selectedMoodIds.map((id, i) => ({ mood_id: id, weight: weights[i] })));
     exitMixMode();
   };
 
