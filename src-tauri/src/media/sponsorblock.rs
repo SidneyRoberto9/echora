@@ -36,7 +36,13 @@ struct RawSegment {
 /// entry matching `video_id` exactly (the API returns every video sharing
 /// the K-Anonymity hash prefix) and only its skip-type segments (`"mute"`
 /// and highlight-only markers don't apply to a plain seek-past skip).
-fn parse_segments(body: &str, video_id: &str) -> Result<Vec<Segment>> {
+///
+/// The response is untrusted, community-submitted data: `categories` is
+/// re-checked here rather than trusting the server's own `?categories=`
+/// filtering, and segment timestamps are validated (finite, non-negative,
+/// end after start) so a malformed or malicious submission can't produce a
+/// segment that matches every playback position.
+fn parse_segments(body: &str, video_id: &str, categories: &[String]) -> Result<Vec<Segment>> {
     let entries: Vec<VideoEntry> =
         serde_json::from_str(body).map_err(|err| EchoraError::SponsorBlock(err.to_string()))?;
 
@@ -47,7 +53,14 @@ fn parse_segments(body: &str, video_id: &str) -> Result<Vec<Segment>> {
             entry
                 .segments
                 .into_iter()
-                .filter(|s| s.action_type == "skip")
+                .filter(|s| {
+                    s.action_type == "skip"
+                        && s.segment[0].is_finite()
+                        && s.segment[1].is_finite()
+                        && s.segment[0] >= 0.0
+                        && s.segment[1] > s.segment[0]
+                        && categories.iter().any(|c| c == &s.category)
+                })
                 .map(|s| Segment {
                     start: s.segment[0],
                     end: s.segment[1],
@@ -107,7 +120,7 @@ fn fetch_segments_blocking(video_id: &str, categories: &[String]) -> Result<Vec<
     let body = response
         .text()
         .map_err(|err| EchoraError::SponsorBlock(err.to_string()))?;
-    parse_segments(&body, video_id)
+    parse_segments(&body, video_id, categories)
 }
 
 /// Runs forever: once a second, detects whether the current track changed
@@ -186,7 +199,7 @@ mod tests {
     #[test]
     fn parse_segments_keeps_only_the_matching_video_and_skip_segments() {
         let body = include_str!("fixtures/sponsorblock_response.json");
-        let segments = parse_segments(body, "dQw4w9WgXcQ").unwrap();
+        let segments = parse_segments(body, "dQw4w9WgXcQ", &["sponsor".to_string()]).unwrap();
 
         assert_eq!(
             segments,
@@ -201,14 +214,43 @@ mod tests {
     #[test]
     fn parse_segments_returns_empty_for_a_video_id_not_in_the_response() {
         let body = include_str!("fixtures/sponsorblock_response.json");
-        let segments = parse_segments(body, "not-in-the-fixture").unwrap();
+        let segments =
+            parse_segments(body, "not-in-the-fixture", &["sponsor".to_string()]).unwrap();
         assert!(segments.is_empty());
     }
 
     #[test]
     fn parse_segments_errors_on_malformed_json() {
-        let err = parse_segments("not json", "dQw4w9WgXcQ").unwrap_err();
+        let err = parse_segments("not json", "dQw4w9WgXcQ", &["sponsor".to_string()]).unwrap_err();
         assert!(matches!(err, EchoraError::SponsorBlock(_)));
+    }
+
+    #[test]
+    fn parse_segments_excludes_categories_not_requested() {
+        let body = include_str!("fixtures/sponsorblock_response.json");
+        // Fixture's matching video has a "sponsor" skip segment; requesting
+        // only "intro" should exclude it even though the server nominally
+        // filters — never trust the response's own category field alone.
+        let segments = parse_segments(body, "dQw4w9WgXcQ", &["intro".to_string()]).unwrap();
+        assert!(segments.is_empty());
+    }
+
+    #[test]
+    fn parse_segments_rejects_out_of_range_or_inverted_timestamps() {
+        let body = r#"[{"videoID":"abc","segments":[
+            {"segment":[-1.0,10.0],"category":"sponsor","actionType":"skip"},
+            {"segment":[50.0,10.0],"category":"sponsor","actionType":"skip"},
+            {"segment":[5.0,10.0],"category":"sponsor","actionType":"skip"}
+        ]}]"#;
+        let segments = parse_segments(body, "abc", &["sponsor".to_string()]).unwrap();
+        assert_eq!(
+            segments,
+            vec![Segment {
+                start: 5.0,
+                end: 10.0,
+                category: "sponsor".into()
+            }]
+        );
     }
 
     #[tokio::test]
