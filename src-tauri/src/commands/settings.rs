@@ -13,5 +13,9 @@ pub fn get_settings(state: State<AppState>) -> Result<Settings> {
 #[tauri::command]
 pub fn update_settings(app: AppHandle, state: State<AppState>, settings: Settings) -> Result<()> {
     state.db.lock().unwrap().save_settings(&settings)?;
+    state.crash_reporting_enabled.store(
+        settings.crash_report_enabled,
+        std::sync::atomic::Ordering::Relaxed,
+    );
     autostart::sync(&app, settings.autostart_enabled)
 }

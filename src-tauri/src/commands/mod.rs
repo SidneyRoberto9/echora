@@ -1,3 +1,4 @@
+pub mod crash;
 pub mod library;
 pub mod mood;
 pub mod playback;
