@@ -21,11 +21,23 @@ fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
 }
 
+/// Whether this process is running from an AppImage — set by the
+/// AppImage runtime itself (`APPIMAGE` env var points at the mounted
+/// image). Only the AppImage build supports in-place self-update; `.deb`
+/// installs get a static "check the releases page" note in Settings
+/// instead (see docs/superpowers/specs/2026-09-01-auto-update-design.md).
+#[tauri::command]
+fn is_appimage_build() -> bool {
+    std::env::var_os("APPIMAGE").is_some()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_autostart::Builder::new().build())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .setup(|app| {
             let app_dir = app
                 .path()
@@ -82,6 +94,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             greet,
+            is_appimage_build,
             commands::mood::list_moods,
             commands::mood::surprise_me,
             commands::settings::get_settings,
@@ -137,4 +150,32 @@ pub fn run() {
                 });
             }
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn is_appimage_build_reflects_the_appimage_env_var() {
+        // SAFETY: this test mutates process-global env state
+        // (`APPIMAGE`); no other test in this crate reads or writes that
+        // variable, and Rust's test harness doesn't run this specific
+        // test concurrently with itself, so there's no cross-test race —
+        // but do not add another test touching `APPIMAGE` without
+        // giving both a `#[serial]`-style guard or merging them into one.
+        unsafe {
+            std::env::remove_var("APPIMAGE");
+        }
+        assert!(!is_appimage_build());
+
+        unsafe {
+            std::env::set_var("APPIMAGE", "/tmp/echora.AppImage");
+        }
+        assert!(is_appimage_build());
+
+        unsafe {
+            std::env::remove_var("APPIMAGE");
+        }
+    }
 }
