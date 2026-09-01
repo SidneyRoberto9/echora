@@ -48,6 +48,9 @@ pub enum EchoraError {
 
     #[error("sponsorblock error: {0}")]
     SponsorBlock(String),
+
+    #[error("sidecar error: {0}")]
+    Sidecar(String),
 }
 
 pub type Result<T> = std::result::Result<T, EchoraError>;
@@ -77,6 +80,7 @@ impl EchoraError {
             EchoraError::SidecarTimeout(_) => "sidecar_timeout",
             EchoraError::Autostart(_) => "autostart_error",
             EchoraError::SponsorBlock(_) => "sponsorblock_error",
+            EchoraError::Sidecar(_) => "sidecar_error",
         }
     }
 }

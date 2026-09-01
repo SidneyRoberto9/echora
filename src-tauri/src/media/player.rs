@@ -1,13 +1,13 @@
 use std::path::PathBuf;
-use std::process::Stdio;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use serde_json::{Value, json};
+use tauri_plugin_shell::ShellExt;
+use tauri_plugin_shell::process::CommandChild;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
-use tokio::process::{Child, Command};
 
 use crate::crash;
 use crate::error::{EchoraError, Result};
@@ -18,22 +18,19 @@ use crate::error::{EchoraError, Result};
 /// a persistent connection with `observe_property` events is a Fase 6/9
 /// refinement once smooth progress reporting is actually needed.
 pub struct Player {
-    mpv_path: PathBuf,
     socket_path: PathBuf,
-    child: Option<Child>,
+    child: Option<CommandChild>,
     app_dir: PathBuf,
     crash_reporting_enabled: Arc<AtomicBool>,
 }
 
 impl Player {
     pub fn new(
-        mpv_path: PathBuf,
         socket_path: PathBuf,
         app_dir: PathBuf,
         crash_reporting_enabled: Arc<AtomicBool>,
     ) -> Self {
         Player {
-            mpv_path,
             socket_path,
             child: None,
             app_dir,
@@ -45,20 +42,21 @@ impl Player {
         self.child.is_some()
     }
 
-    pub async fn start(&mut self) -> Result<()> {
+    pub async fn start<R: tauri::Runtime>(&mut self, app: &tauri::AppHandle<R>) -> Result<()> {
         let _ = std::fs::remove_file(&self.socket_path);
 
-        let child = Command::new(&self.mpv_path)
-            .arg("--idle=yes")
-            .arg("--no-video")
-            .arg("--no-terminal")
-            .arg(format!("--input-ipc-server={}", self.socket_path.display()))
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .kill_on_drop(true)
+        let (_rx, child) = app
+            .shell()
+            .sidecar("mpv")
+            .map_err(|e| EchoraError::Sidecar(e.to_string()))?
+            .args([
+                "--idle=yes".to_string(),
+                "--no-video".to_string(),
+                "--no-terminal".to_string(),
+                format!("--input-ipc-server={}", self.socket_path.display()),
+            ])
             .spawn()
-            .map_err(EchoraError::Io)?;
+            .map_err(|e| EchoraError::Sidecar(e.to_string()))?;
         self.child = Some(child);
 
         self.wait_for_socket().await
@@ -171,8 +169,8 @@ impl Player {
     /// leave an orphaned mpv process behind.
     pub async fn shutdown(&mut self) -> Result<()> {
         let _ = self.send_command(json!(["quit"])).await;
-        if let Some(mut child) = self.child.take() {
-            let _ = child.kill().await;
+        if let Some(child) = self.child.take() {
+            let _ = child.kill();
         }
         let _ = std::fs::remove_file(&self.socket_path);
         Ok(())
@@ -190,17 +188,31 @@ mod smoke_tests {
         std::env::temp_dir().join(format!("echora-player-test-{}.sock", std::process::id()))
     }
 
+    /// A real (if fake-runtime) `AppHandle` with the shell plugin
+    /// registered — `app.shell().sidecar(...)` looks up `Shell<R>` from
+    /// managed state, so a bare `MockRuntime` app without the plugin
+    /// registered would fail at `.sidecar()`, not just at the (expected,
+    /// per tauri-apps/tauri#13767) real spawn.
+    fn test_app_handle() -> tauri::AppHandle<tauri::test::MockRuntime> {
+        tauri::test::mock_builder()
+            .plugin(tauri_plugin_shell::init())
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .expect("mock tauri app should build")
+            .handle()
+            .clone()
+    }
+
     #[tokio::test]
     #[ignore]
     async fn starting_and_shutting_down_leaves_no_process_or_socket() {
         let socket_path = dev_socket_path();
+        let app = test_app_handle();
         let mut player = Player::new(
-            PathBuf::from("mpv"),
             socket_path.clone(),
             std::env::temp_dir(),
             std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
         );
-        player.start().await.unwrap();
+        player.start(&app).await.unwrap();
         assert!(socket_path.exists());
 
         player.shutdown().await.unwrap();
@@ -224,20 +236,24 @@ mod smoke_tests {
 
         let dev_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("binaries/dev");
         let resolver = Resolver::new(ResolverConfig {
-            yt_dlp_path: dev_dir.join("yt-dlp_linux"),
             deno_path: dev_dir.join("deno"),
             timeout: StdDuration::from_secs(30),
         });
-        let tracks = resolver.search("villain arc playlist", 1).await.unwrap();
-        let resolved = resolver.resolve_with_retry(&tracks[0].id).await.unwrap();
-
+        let app = test_app_handle();
+        let tracks = resolver
+            .search(&app, "villain arc playlist", 1)
+            .await
+            .unwrap();
+        let resolved = resolver
+            .resolve_with_retry(&app, &tracks[0].id)
+            .await
+            .unwrap();
         let mut player = Player::new(
-            PathBuf::from("mpv"),
             dev_socket_path(),
             std::env::temp_dir(),
             std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
         );
-        player.start().await.unwrap();
+        player.start(&app).await.unwrap();
         player.set_volume(10).await.unwrap();
         player.load(&resolved.stream_url).await.unwrap();
         tokio::time::sleep(StdDuration::from_secs(4)).await;
@@ -267,17 +283,13 @@ mod smoke_tests {
             std::env::temp_dir().join(format!("echora-crash-smoke-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&app_dir);
         let enabled = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
-        let mut player = Player::new(
-            PathBuf::from("mpv"),
-            socket_path.clone(),
-            app_dir.clone(),
-            enabled,
-        );
-        player.start().await.unwrap();
+        let app = test_app_handle();
+        let mut player = Player::new(socket_path.clone(), app_dir.clone(), enabled);
+        player.start(&app).await.unwrap();
 
         // Kill mpv out-of-band — not through shutdown() — to simulate a
         // real unexpected sidecar death.
-        let pid = player.child.as_ref().unwrap().id().unwrap();
+        let pid = player.child.as_ref().unwrap().pid();
         let _ = std::process::Command::new("kill")
             .arg("-9")
             .arg(pid.to_string())

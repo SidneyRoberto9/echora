@@ -35,10 +35,11 @@ pub fn start_session(state: State<AppState>, mood_id: String) -> Result<SessionI
 /// one — `start_session` alone only does the first of those three.
 #[tauri::command]
 pub async fn start_mood_session(
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
     mood_id: String,
 ) -> Result<SessionInfo> {
-    super::start_session_and_play(&state, &[(mood_id, 100)]).await
+    super::start_session_and_play(&app, &state, &[(mood_id, 100)]).await
 }
 
 /// Starts a session for a weighted mix of 1-3 moods (see
@@ -46,11 +47,12 @@ pub async fn start_mood_session(
 /// counterpart to `start_mood_session`.
 #[tauri::command]
 pub async fn start_mixed_session(
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
     moods: Vec<SessionMood>,
 ) -> Result<SessionInfo> {
     let pairs: Vec<(String, u8)> = moods.into_iter().map(|m| (m.mood_id, m.weight)).collect();
-    super::start_session_and_play(&state, &pairs).await
+    super::start_session_and_play(&app, &state, &pairs).await
 }
 
 #[tauri::command]
@@ -138,12 +140,10 @@ mod tests {
             queue: Mutex::new(Queue::new()),
             moods: MoodCatalog::load().unwrap(),
             resolver: Resolver::new(ResolverConfig {
-                yt_dlp_path: PathBuf::from("yt-dlp"),
                 deno_path: PathBuf::from("deno"),
                 timeout: Duration::from_secs(30),
             }),
             player: tokio::sync::Mutex::new(Player::new(
-                PathBuf::from("mpv"),
                 PathBuf::from("/tmp/echora-test-unused.sock"),
                 std::env::temp_dir(),
                 std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),

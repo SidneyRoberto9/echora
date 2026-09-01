@@ -39,6 +39,7 @@ pub fn run() {
         .plugin(tauri_plugin_autostart::Builder::new().build())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_shell::init())
         .setup(|app| {
             let app_dir = app
                 .path()
@@ -59,14 +60,11 @@ pub fn run() {
                 initial_settings.crash_report_enabled,
             ));
 
-            let sidecar_paths = media::sidecar_paths::SidecarPaths::discover_dev();
             let resolver = media::resolver::Resolver::new(media::resolver::ResolverConfig {
-                yt_dlp_path: sidecar_paths.yt_dlp,
-                deno_path: sidecar_paths.deno,
+                deno_path: media::sidecar_paths::resolve_deno_path(),
                 timeout: std::time::Duration::from_secs(30),
             });
             let player = media::player::Player::new(
-                sidecar_paths.mpv,
                 app_dir.join("mpv-ipc.sock"),
                 app_dir.clone(),
                 crash_reporting_enabled.clone(),

@@ -18,7 +18,11 @@ use crate::state::AppState;
 /// and appends them to the queue. Shared by starting a mixed session and
 /// topping the queue back up mid-session — both are "get more candidates
 /// for this mix," just triggered at different times.
-pub(crate) async fn top_up_queue(state: &AppState, moods: &[(String, u8)]) -> Result<()> {
+pub(crate) async fn top_up_queue<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    state: &AppState,
+    moods: &[(String, u8)],
+) -> Result<()> {
     let resolved: Vec<(&Mood, u8)> = moods
         .iter()
         .map(|(mood_id, weight)| state.moods.get(mood_id).map(|m| (m, *weight)))
@@ -32,9 +36,15 @@ pub(crate) async fn top_up_queue(state: &AppState, moods: &[(String, u8)]) -> Re
     // A plain `StdRng`, not the thread-local `rand::rng()` — Tauri's async
     // commands require `Send` futures, and `ThreadRng` (`Rc`-based) isn't.
     let mut rng = StdRng::from_rng(&mut rand::rng());
-    let candidates =
-        mood_engine::generate_mixed_candidates(&resolved, &state.resolver, &ctx, &config, &mut rng)
-            .await?;
+    let candidates = mood_engine::generate_mixed_candidates(
+        app,
+        &resolved,
+        &state.resolver,
+        &ctx,
+        &config,
+        &mut rng,
+    )
+    .await?;
     state.queue.lock().unwrap().add_candidates(candidates);
     Ok(())
 }
@@ -42,11 +52,15 @@ pub(crate) async fn top_up_queue(state: &AppState, moods: &[(String, u8)]) -> Re
 /// Resolves `track` to a playable stream and hands it to the mpv sidecar,
 /// starting mpv on first use. The one place playback actually begins —
 /// every command that changes "what's current" routes through this.
-pub(crate) async fn resolve_and_load(state: &AppState, track: &Track) -> Result<()> {
-    let resolved = state.resolver.resolve_with_retry(&track.id).await?;
+pub(crate) async fn resolve_and_load(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    track: &Track,
+) -> Result<()> {
+    let resolved = state.resolver.resolve_with_retry(app, &track.id).await?;
     let mut player = state.player.lock().await;
     if !player.is_started() {
-        player.start().await?;
+        player.start(app).await?;
     }
     player.load(&resolved.stream_url).await?;
     drop(player);
@@ -120,15 +134,16 @@ pub(crate) async fn record_current_completion(state: &AppState) -> Result<()> {
 /// `start_mixed_session`, and `surprise_me`, which only differ in how they
 /// pick `moods`.
 pub(crate) async fn start_session_and_play(
+    app: &tauri::AppHandle,
     state: &AppState,
     moods: &[(String, u8)],
 ) -> Result<SessionInfo> {
     let session = crate::commands::session::start_session_impl(state, moods)?;
-    top_up_queue(state, moods).await?;
+    top_up_queue(app, state, moods).await?;
 
     let current = state.queue.lock().unwrap().current().cloned();
     if let Some(track) = current {
-        resolve_and_load(state, &track).await?;
+        resolve_and_load(app, state, &track).await?;
     }
     Ok(session)
 }

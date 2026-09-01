@@ -1,0 +1,79 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*.*.*']
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  release:
+    name: Release (${{ matrix.arch }})
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            triple: x86_64-unknown-linux-gnu
+            runner: ubuntu-24.04
+          - arch: aarch64
+            triple: aarch64-unknown-linux-gnu
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify tag matches tauri.conf.json version
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          CONF_VERSION="$(node -p "require('./src-tauri/tauri.conf.json').version")"
+          if [ "$TAG_VERSION" != "$CONF_VERSION" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match tauri.conf.json version $CONF_VERSION" >&2
+            exit 1
+          fi
+
+      - name: Install Tauri Linux prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - name: Install mpv build prerequisites
+        run: |
+          sudo apt-get install -y meson ninja-build patchelf pkg-config \
+            libavcodec-dev libavformat-dev libavutil-dev libswresample-dev \
+            libasound2-dev libpulse-dev
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+
+      - name: Build mpv
+        run: ./scripts/build-mpv.sh ${{ matrix.triple }} src-tauri/binaries
+
+      - name: Fetch yt-dlp/Deno
+        run: ./scripts/fetch-sidecar-binaries.sh ${{ matrix.arch }} ${{ matrix.triple }} src-tauri/binaries
+
+      - uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'Echora ${{ github.ref_name }}'
+          releaseDraft: false
+          prerelease: false
+          uploadUpdaterJson: true

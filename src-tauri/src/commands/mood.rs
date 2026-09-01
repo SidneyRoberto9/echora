@@ -13,7 +13,7 @@ pub fn list_moods(state: State<AppState>) -> Vec<MoodSummary> {
 /// Picks a mood (favorited moods more likely, recently-played moods less
 /// likely — see `mood_engine::surprise`) and starts a session for it.
 #[tauri::command]
-pub async fn surprise_me(state: State<'_, AppState>) -> Result<SessionInfo> {
+pub async fn surprise_me(app: tauri::AppHandle, state: State<'_, AppState>) -> Result<SessionInfo> {
     let moods = state.moods.list();
     let mood_id = {
         let db = state.db.lock().unwrap();
@@ -24,5 +24,5 @@ pub async fn surprise_me(state: State<'_, AppState>) -> Result<SessionInfo> {
         picked.id.clone()
     };
 
-    super::start_session_and_play(&state, &[(mood_id, 100)]).await
+    super::start_session_and_play(&app, &state, &[(mood_id, 100)]).await
 }

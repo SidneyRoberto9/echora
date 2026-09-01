@@ -15,6 +15,20 @@ compile-time dependencies (pulled via Cargo/npm, not separately
 redistributed as binaries) will be audited with `cargo-about`/`cargo-deny`
 and `npm ls`/license-checker before the first release and listed here.
 
+**PRE-RELEASE BLOCKER, caught in the Packaging feature's final branch
+review (2026-09-01), not yet done:** `.github/workflows/release.yml`
+(the tag-triggered release pipeline) does not fetch, bundle, or
+otherwise ship mpv's or yt-dlp's license text anywhere in the produced
+`.deb`/AppImage, and runs no `cargo-about`/license-audit step. Both are
+real obligations per the table below the moment a real binary ships, not
+just documentation hygiene. **Do not push a real (non-scratch-test)
+release tag until:** (1) mpv's GPL-2.0+ license text and yt-dlp's GPLv3+
+license text + its own `THIRD_PARTY_LICENSES.txt` are bundled into the
+package and reachable from the app (an in-app "Licenses" view or
+equivalent), (2) Deno's MIT notice is included, and (3) the
+`cargo-about`/npm-license-audit pass promised above has actually run at
+least once against the real dependency tree.
+
 ## Bundled sidecar binaries
 
 | Component | Role | License | Distribution form | Obligation |

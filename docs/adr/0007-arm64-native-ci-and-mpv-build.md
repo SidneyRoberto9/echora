@@ -50,6 +50,22 @@ it ourselves in CI," not this AppImage. Local dev/testing instead used
 the distro's plain `mpv` package, which has none of this problem since
 it's just invoked directly, unmodified, with no wrapper.
 
+## Open item (pre-release, must resolve before the first real tag push)
+`scripts/build-mpv.sh` (Task 4 of `docs/superpowers/plans/2026-09-01-packaging.md`)
+copies mpv's bundled `.so` deps to `$OUT_DIR/lib/` alongside the binary and
+sets rpath `$ORIGIN/lib`, but `src-tauri/tauri.conf.json`'s `bundle` block
+only declares `externalBin` — there is no `resources` entry bundling that
+`lib/` directory into the final `.deb`/AppImage. Caught in this feature's
+final branch review (2026-09-01), not yet fixed: the correct fix needs
+Tauri v2's real `resources`/`externalBin` placement semantics confirmed
+against an actual built package (`externalBin` and `resources` are not
+guaranteed to land in the same output directory, so `$ORIGIN/lib` may not
+resolve as-is) — nothing in this project's environment can run a full
+`cargo tauri build` to settle it (missing `meson`/`ninja`/FFmpeg dev
+headers). **Do not push a real release tag until this is fixed and
+verified against a real built `.deb` and AppImage** — the scratch-tag test
+recommended in Task 6's own report is the right place to catch it.
+
 ## Consequences
 - mpv becomes a build artifact Echora's own CI produces and
   checksum-tracks per release, not a binary fetched from a third party —

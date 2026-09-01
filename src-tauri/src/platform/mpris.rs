@@ -195,7 +195,7 @@ impl PlayerInterface for MprisHandler {
     async fn next(&self) -> fdo::Result<()> {
         let app = self.app.clone();
         tauri::async_runtime::spawn(async move {
-            let _ = commands::queue::queue_next(app.state()).await;
+            let _ = commands::queue::queue_next(app.clone(), app.state()).await;
         });
         Ok(())
     }
@@ -203,7 +203,7 @@ impl PlayerInterface for MprisHandler {
     async fn previous(&self) -> fdo::Result<()> {
         let app = self.app.clone();
         tauri::async_runtime::spawn(async move {
-            let _ = commands::queue::queue_previous(app.state()).await;
+            let _ = commands::queue::queue_previous(app.clone(), app.state()).await;
         });
         Ok(())
     }
