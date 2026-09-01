@@ -3,7 +3,7 @@ import { useDiscover } from "../hooks/useDiscover";
 import { LibraryTab } from "./LibraryTab";
 import { StatsTab } from "./StatsTab";
 import type { useMoods } from "../hooks/useMoods";
-import type { Track } from "../lib/api";
+import type { SessionMood, Track } from "../lib/api";
 
 type DiscoverTab = "library" | "stats";
 
@@ -14,6 +14,7 @@ interface DiscoverViewProps {
   startingMoodId: string | null;
   startingTrackId: string | null;
   onStartMood: (moodId: string) => void;
+  onStartMix: (moods: SessionMood[]) => void;
   onPlayTrack: (track: Track) => void;
   onPlayScene: (sceneId: number) => void;
   sceneSaveTick: number;
@@ -25,6 +26,7 @@ export function DiscoverView({
   startingMoodId,
   startingTrackId,
   onStartMood,
+  onStartMix,
   onPlayTrack,
   onPlayScene,
   sceneSaveTick,
@@ -84,6 +86,7 @@ export function DiscoverView({
           startingMoodId={startingMoodId}
           startingTrackId={startingTrackId}
           onStartMood={onStartMood}
+          onStartMix={onStartMix}
           onPlayTrack={onPlayTrack}
           onPlayScene={onPlayScene}
           onError={onError}

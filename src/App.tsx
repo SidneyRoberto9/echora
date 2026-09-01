@@ -10,7 +10,7 @@ import { DiscoverView } from "./components/DiscoverView";
 import { usePlayback } from "./hooks/usePlayback";
 import { useMoods } from "./hooks/useMoods";
 import { api } from "./lib/api";
-import type { Track } from "./lib/api";
+import type { SessionMood, Track } from "./lib/api";
 
 export type View = "home" | "queue" | "discover" | "settings";
 
@@ -23,7 +23,7 @@ function App() {
   const [playerExpanded, setPlayerExpanded] = useState(false);
   const [startingMoodId, setStartingMoodId] = useState<string | null>(null);
   const [startingTrackId, setStartingTrackId] = useState<string | null>(null);
-  const [currentMoodId, setCurrentMoodId] = useState<string | null>(null);
+  const [currentMoods, setCurrentMoods] = useState<SessionMood[] | null>(null);
   const [globalError, setGlobalError] = useState<string | null>(null);
   const [sceneSaveTick, setSceneSaveTick] = useState(0);
 
@@ -38,7 +38,24 @@ function App() {
       setStartingMoodId(moodId);
       try {
         const session = await api.startMoodSession(moodId);
-        setCurrentMoodId(session.mood_id);
+        setCurrentMoods(session.moods);
+        await playback.refreshQueue();
+        setPlayerExpanded(true);
+      } catch (err) {
+        reportError(messageOf(err));
+      } finally {
+        setStartingMoodId(null);
+      }
+    },
+    [playback, reportError],
+  );
+
+  const handleStartMix = useCallback(
+    async (moods: SessionMood[]) => {
+      setStartingMoodId("mix");
+      try {
+        const session = await api.startMixedSession(moods);
+        setCurrentMoods(session.moods);
         await playback.refreshQueue();
         setPlayerExpanded(true);
       } catch (err) {
@@ -55,7 +72,7 @@ function App() {
       setStartingTrackId(track.id);
       try {
         await api.playSingleTrack(track);
-        setCurrentMoodId(null);
+        setCurrentMoods(null);
         await playback.refreshQueue();
         setPlayerExpanded(true);
       } catch (err) {
@@ -72,7 +89,7 @@ function App() {
       setStartingTrackId(`scene-${sceneId}`);
       try {
         await api.playScene(sceneId);
-        setCurrentMoodId(null);
+        setCurrentMoods(null);
         await playback.refreshQueue();
         setPlayerExpanded(true);
       } catch (err) {
@@ -88,7 +105,7 @@ function App() {
     setStartingMoodId("surprise");
     try {
       const session = await api.surpriseMe();
-      setCurrentMoodId(session.mood_id);
+      setCurrentMoods(session.moods);
       await playback.refreshQueue();
       setPlayerExpanded(true);
     } catch (err) {
@@ -98,7 +115,11 @@ function App() {
     }
   }, [playback, reportError]);
 
-  const currentMoodName = moodsData.moods.find((m) => m.id === currentMoodId)?.name ?? null;
+  const currentMoodName = currentMoods
+    ? currentMoods
+        .map((m) => moodsData.moods.find((mood) => mood.id === m.mood_id)?.name ?? "Unknown mood")
+        .join(" + ")
+    : null;
 
   return (
     <div className="app-shell">
@@ -130,6 +151,7 @@ function App() {
             startingMoodId={startingMoodId}
             startingTrackId={startingTrackId}
             onStartMood={handleStartMood}
+            onStartMix={handleStartMix}
             onPlayTrack={handlePlayTrack}
             onPlayScene={handlePlayScene}
             sceneSaveTick={sceneSaveTick}

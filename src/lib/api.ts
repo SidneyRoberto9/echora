@@ -24,9 +24,14 @@ export interface MoodSummary {
   traits: MoodTraits;
 }
 
+export interface SessionMood {
+  mood_id: string;
+  weight: number;
+}
+
 export interface SessionInfo {
   id: number;
-  mood_id: string;
+  moods: SessionMood[];
   started_at: number;
   ended_at: number | null;
 }
@@ -117,6 +122,7 @@ export const api = {
   updateSettings: (settings: Settings) => call<void>("update_settings", { settings }),
 
   startMoodSession: (moodId: string) => call<SessionInfo>("start_mood_session", { moodId }),
+  startMixedSession: (moods: SessionMood[]) => call<SessionInfo>("start_mixed_session", { moods }),
   endSession: () => call<void>("end_session"),
   getCurrentSession: () => call<SessionInfo | null>("get_current_session"),
   listHistory: (limit: number, offset: number) =>
