@@ -32,7 +32,7 @@ pub async fn queue_next(
     }
 
     // Best-effort: a stalled top-up shouldn't fail an otherwise-successful skip.
-    let _ = ensure_queue_topped_up(state.clone()).await;
+    let _ = ensure_queue_topped_up(app.clone(), state.clone()).await;
     Ok(advanced)
 }
 
@@ -76,7 +76,10 @@ pub fn queue_remove(state: State<AppState>, index: usize) -> Result<()> {
 /// mood. A no-op if there's still plenty queued, or if the queue is low
 /// but there's no active session to generate more candidates for.
 #[tauri::command]
-pub async fn ensure_queue_topped_up(state: State<'_, AppState>) -> Result<()> {
+pub async fn ensure_queue_topped_up(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<()> {
     let needs_more = state.queue.lock().unwrap().upcoming().len() < LOW_WATERMARK;
     if !needs_more {
         return Ok(());
@@ -94,7 +97,7 @@ pub async fn ensure_queue_topped_up(state: State<'_, AppState>) -> Result<()> {
         }
     };
 
-    super::top_up_queue(&state, &moods).await
+    super::top_up_queue(&app, &state, &moods).await
 }
 
 /// Clears the way for an ad-hoc single-track play: ends the active
@@ -202,7 +205,6 @@ mod tests {
             queue: Mutex::new(Queue::new()),
             moods: MoodCatalog::load().unwrap(),
             resolver: Resolver::new(ResolverConfig {
-                yt_dlp_path: PathBuf::from("yt-dlp"),
                 deno_path: PathBuf::from("deno"),
                 timeout: Duration::from_secs(30),
             }),

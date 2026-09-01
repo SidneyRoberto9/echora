@@ -236,14 +236,18 @@ mod smoke_tests {
 
         let dev_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("binaries/dev");
         let resolver = Resolver::new(ResolverConfig {
-            yt_dlp_path: dev_dir.join("yt-dlp_linux"),
             deno_path: dev_dir.join("deno"),
             timeout: StdDuration::from_secs(30),
         });
-        let tracks = resolver.search("villain arc playlist", 1).await.unwrap();
-        let resolved = resolver.resolve_with_retry(&tracks[0].id).await.unwrap();
-
         let app = test_app_handle();
+        let tracks = resolver
+            .search(&app, "villain arc playlist", 1)
+            .await
+            .unwrap();
+        let resolved = resolver
+            .resolve_with_retry(&app, &tracks[0].id)
+            .await
+            .unwrap();
         let mut player = Player::new(
             dev_socket_path(),
             std::env::temp_dir(),

@@ -50,7 +50,8 @@ pub fn build_scoring_context(db: &Db, recent_session_window: i64) -> Result<Scor
 /// `candidates::query_counts_for_weights`), searches, dedups, scores,
 /// shuffles. Same partial-failure rule as before: the last error is
 /// propagated only if every query across every mood in the mix failed.
-pub async fn generate_mixed_candidates(
+pub async fn generate_mixed_candidates<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
     moods: &[(&Mood, u8)],
     resolver: &Resolver,
     ctx: &ScoringContext,
@@ -65,7 +66,7 @@ pub async fn generate_mixed_candidates(
     let mut last_err = None;
     for ((mood, _), count) in moods.iter().copied().zip(counts) {
         for query in candidates::select_queries(mood, count, rng) {
-            match resolver.search(&query, config.results_per_query).await {
+            match resolver.search(app, &query, config.results_per_query).await {
                 Ok(tracks) => raw.extend(tracks),
                 Err(err) => last_err = Some(err),
             }
@@ -130,15 +131,27 @@ mod smoke_tests {
     use std::path::Path;
     use std::time::Duration;
 
+    /// A real (if fake-runtime) `AppHandle` with the shell plugin
+    /// registered — see `media::resolver::smoke_tests::test_app_handle`
+    /// for why the plugin registration matters.
+    fn test_app_handle() -> tauri::AppHandle<tauri::test::MockRuntime> {
+        tauri::test::mock_builder()
+            .plugin(tauri_plugin_shell::init())
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .expect("mock tauri app should build")
+            .handle()
+            .clone()
+    }
+
     #[tokio::test]
     #[ignore]
     async fn generating_candidates_for_a_real_mood_returns_deduped_scored_tracks() {
         let dev_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("binaries/dev");
         let resolver = Resolver::new(ResolverConfig {
-            yt_dlp_path: dev_dir.join("yt-dlp_linux"),
             deno_path: dev_dir.join("deno"),
             timeout: Duration::from_secs(30),
         });
+        let app = test_app_handle();
         let catalog = MoodCatalog::load().unwrap();
         let mood = catalog
             .get("villain")
@@ -149,7 +162,7 @@ mod smoke_tests {
         let mut rng = StdRng::seed_from_u64(1);
 
         let candidates =
-            generate_mixed_candidates(&[(mood, 100)], &resolver, &ctx, &config, &mut rng)
+            generate_mixed_candidates(&app, &[(mood, 100)], &resolver, &ctx, &config, &mut rng)
                 .await
                 .unwrap();
 

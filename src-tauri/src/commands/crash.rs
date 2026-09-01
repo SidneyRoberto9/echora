@@ -69,7 +69,6 @@ mod tests {
             queue: Mutex::new(Queue::new()),
             moods: MoodCatalog::load().unwrap(),
             resolver: Resolver::new(ResolverConfig {
-                yt_dlp_path: PathBuf::from("yt-dlp"),
                 deno_path: PathBuf::from("deno"),
                 timeout: Duration::from_secs(30),
             }),

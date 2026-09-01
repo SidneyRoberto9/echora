@@ -60,10 +60,8 @@ pub fn run() {
                 initial_settings.crash_report_enabled,
             ));
 
-            let sidecar_paths = media::sidecar_paths::SidecarPaths::discover_dev();
             let resolver = media::resolver::Resolver::new(media::resolver::ResolverConfig {
-                yt_dlp_path: sidecar_paths.yt_dlp,
-                deno_path: sidecar_paths.deno,
+                deno_path: media::sidecar_paths::resolve_deno_path(),
                 timeout: std::time::Duration::from_secs(30),
             });
             let player = media::player::Player::new(
