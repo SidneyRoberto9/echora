@@ -1,4 +1,5 @@
 mod commands;
+mod crash;
 mod db;
 mod error;
 mod media;
