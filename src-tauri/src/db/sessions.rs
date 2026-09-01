@@ -81,13 +81,19 @@ impl Db {
     }
 
     /// Ends any currently-open session, then starts a new one for `moods`
-    /// (1-3 entries, weights summing to 100, no duplicate mood id).
+    /// (1-3 entries, each weight > 0, weights summing to 100, no duplicate
+    /// mood id).
     pub fn start_session(&self, moods: &[(String, u8)]) -> Result<SessionInfo> {
         if moods.is_empty() || moods.len() > 3 {
             return Err(EchoraError::InvalidMoodMix(format!(
                 "expected 1-3 moods, got {}",
                 moods.len()
             )));
+        }
+        if moods.iter().any(|(_, weight)| *weight == 0) {
+            return Err(EchoraError::InvalidMoodMix(
+                "mood weight must be greater than 0".into(),
+            ));
         }
         let weight_sum: u32 = moods.iter().map(|(_, weight)| *weight as u32).sum();
         if weight_sum != 100 {
@@ -406,6 +412,15 @@ mod tests {
         assert_eq!(stats.total_sessions, 1);
         assert_eq!(stats.total_tracks_played, 2);
         assert_eq!(stats.top_mood_id, Some("villain".to_string()));
+    }
+
+    #[test]
+    fn start_session_rejects_a_zero_weight() {
+        let db = Db::open_in_memory().unwrap();
+        let err = db
+            .start_session(&[("villain".to_string(), 0), ("chill".to_string(), 100)])
+            .unwrap_err();
+        assert!(matches!(err, EchoraError::InvalidMoodMix(_)));
     }
 
     #[test]
