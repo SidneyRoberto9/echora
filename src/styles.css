@@ -197,6 +197,26 @@ a:hover {
   color: var(--text-secondary);
 }
 
+.mix-toggle {
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 12px;
+  align-self: flex-start;
+}
+.mix-toggle.is-active {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+.mix-toggle:disabled {
+  opacity: 0.5;
+}
+
 .mood-row {
   flex: 0 0 auto;
 }
@@ -265,6 +285,50 @@ a:hover {
 .mood-card__name {
   font-size: 14px;
   font-weight: 600;
+}
+
+.mood-card.is-selected {
+  border: 1px solid var(--accent);
+  background: var(--bg-elevated-hover);
+}
+
+.mood-mix-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  margin-bottom: 12px;
+}
+.mood-mix-bar__chips {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.mood-mix-bar__chip {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--bg-elevated-hover);
+  border-radius: var(--radius-sm);
+  padding: 4px 10px;
+}
+.mood-mix-bar__slider {
+  width: 100%;
+  accent-color: var(--accent);
+}
+.mood-mix-bar__start {
+  align-self: flex-end;
+  min-height: 44px;
+  padding: 0 20px;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: var(--bg-base);
+  font-weight: 600;
+}
+.mood-mix-bar__start:disabled {
+  opacity: 0.6;
 }
 
 /* ---------- Mini player ---------- */

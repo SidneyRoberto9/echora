@@ -1,6 +1,7 @@
 import { EmptyState } from "./EmptyState";
 import { EmptyQueueIcon } from "./icons";
 import { CATEGORY_LABEL } from "../lib/categories";
+import { formatSessionCount } from "../lib/formatSessionCount";
 import type { ListeningStats, MoodSummary } from "../lib/api";
 
 interface StatsTabProps {
@@ -66,7 +67,7 @@ export function StatsTab({ stats, moods, loading }: StatsTabProps) {
           {stats.category_breakdown.map((entry) => (
             <div className="library-row library-row--static" key={entry.category}>
               <span className="library-row__title">{CATEGORY_LABEL[entry.category] ?? entry.category}</span>
-              <span className="library-row__meta">{entry.session_count} sessions</span>
+              <span className="library-row__meta">{formatSessionCount(entry.session_count)} sessions</span>
             </div>
           ))}
         </section>

@@ -10,16 +10,19 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 
 use crate::error::Result;
-use crate::models::{SessionInfo, Track};
+use crate::models::{Mood, SessionInfo, Track};
 use crate::mood_engine::{self, GenerationConfig};
 use crate::state::AppState;
 
-/// Generates a fresh batch of candidates for `mood_id` and appends them to
-/// the queue. Shared by starting a mood session and topping the queue back
-/// up mid-session — both are "get more candidates for this mood," just
-/// triggered at different times.
-pub(crate) async fn top_up_queue(state: &AppState, mood_id: &str) -> Result<()> {
-    let mood = state.moods.get(mood_id)?;
+/// Generates a fresh batch of candidates for `moods` (1-3 weighted moods)
+/// and appends them to the queue. Shared by starting a mixed session and
+/// topping the queue back up mid-session — both are "get more candidates
+/// for this mix," just triggered at different times.
+pub(crate) async fn top_up_queue(state: &AppState, moods: &[(String, u8)]) -> Result<()> {
+    let resolved: Vec<(&Mood, u8)> = moods
+        .iter()
+        .map(|(mood_id, weight)| state.moods.get(mood_id).map(|m| (m, *weight)))
+        .collect::<Result<_>>()?;
     let config = GenerationConfig::default();
     let ctx = {
         let db = state.db.lock().unwrap();
@@ -30,7 +33,8 @@ pub(crate) async fn top_up_queue(state: &AppState, mood_id: &str) -> Result<()> 
     // commands require `Send` futures, and `ThreadRng` (`Rc`-based) isn't.
     let mut rng = StdRng::from_rng(&mut rand::rng());
     let candidates =
-        mood_engine::generate_candidates(mood, &state.resolver, &ctx, &config, &mut rng).await?;
+        mood_engine::generate_mixed_candidates(&resolved, &state.resolver, &ctx, &config, &mut rng)
+            .await?;
     state.queue.lock().unwrap().add_candidates(candidates);
     Ok(())
 }
@@ -111,13 +115,16 @@ pub(crate) async fn record_current_completion(state: &AppState) -> Result<()> {
     Ok(())
 }
 
-/// Starts a session for `mood_id`, fetches its first batch of candidates,
-/// and immediately starts playing the first one — shared by
-/// `start_mood_session` and `surprise_me`, which only differ in how they
-/// pick `mood_id`.
-pub(crate) async fn start_session_and_play(state: &AppState, mood_id: &str) -> Result<SessionInfo> {
-    let session = crate::commands::session::start_session_impl(state, mood_id)?;
-    top_up_queue(state, mood_id).await?;
+/// Starts a session for `moods`, fetches its first batch of candidates, and
+/// immediately starts playing the first one — shared by `start_mood_session`,
+/// `start_mixed_session`, and `surprise_me`, which only differ in how they
+/// pick `moods`.
+pub(crate) async fn start_session_and_play(
+    state: &AppState,
+    moods: &[(String, u8)],
+) -> Result<SessionInfo> {
+    let session = crate::commands::session::start_session_impl(state, moods)?;
+    top_up_queue(state, moods).await?;
 
     let current = state.queue.lock().unwrap().current().cloned();
     if let Some(track) = current {

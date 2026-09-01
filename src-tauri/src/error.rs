@@ -31,6 +31,9 @@ pub enum EchoraError {
     #[error("unknown mood: {0}")]
     UnknownMood(String),
 
+    #[error("invalid mood mix: {0}")]
+    InvalidMoodMix(String),
+
     #[error("malformed sidecar output: {0}")]
     Metadata(String),
 
@@ -65,6 +68,7 @@ impl EchoraError {
             EchoraError::QueueIndexOutOfBounds(_) => "queue_index_out_of_bounds",
             EchoraError::NoActiveSession => "no_active_session",
             EchoraError::UnknownMood(_) => "unknown_mood",
+            EchoraError::InvalidMoodMix(_) => "invalid_mood_mix",
             EchoraError::Metadata(_) => "metadata_error",
             EchoraError::TrackUnavailable(_) => "track_unavailable",
             EchoraError::SidecarTimeout(_) => "sidecar_timeout",

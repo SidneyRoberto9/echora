@@ -2,15 +2,17 @@ use tauri::State;
 
 use crate::error::{EchoraError, Result};
 use crate::models::{
-    CategoryBreakdown, ListeningStats, MoodPlayCount, SessionInfo, SessionSummary,
+    CategoryBreakdown, ListeningStats, MoodPlayCount, SessionInfo, SessionMood, SessionSummary,
 };
 use crate::state::AppState;
 
 /// Plain function (not `#[tauri::command]`) so it's testable without a real
-/// Tauri `App` — the command below is a one-line wrapper around it.
-pub(crate) fn start_session_impl(state: &AppState, mood_id: &str) -> Result<SessionInfo> {
-    state.moods.get(mood_id)?;
-    let session = state.db.lock().unwrap().start_session(mood_id)?;
+/// Tauri `App` — the commands below are thin wrappers around it.
+pub(crate) fn start_session_impl(state: &AppState, moods: &[(String, u8)]) -> Result<SessionInfo> {
+    for (mood_id, _) in moods {
+        state.moods.get(mood_id)?;
+    }
+    let session = state.db.lock().unwrap().start_session(moods)?;
     state.queue.lock().unwrap().clear();
     Ok(session)
 }
@@ -25,7 +27,7 @@ pub(crate) fn end_session_impl(state: &AppState) -> Result<()> {
 
 #[tauri::command]
 pub fn start_session(state: State<AppState>, mood_id: String) -> Result<SessionInfo> {
-    start_session_impl(&state, &mood_id)
+    start_session_impl(&state, &[(mood_id, 100)])
 }
 
 /// The real "choose a mood, get music" entry point: creates the session,
@@ -36,7 +38,19 @@ pub async fn start_mood_session(
     state: State<'_, AppState>,
     mood_id: String,
 ) -> Result<SessionInfo> {
-    super::start_session_and_play(&state, &mood_id).await
+    super::start_session_and_play(&state, &[(mood_id, 100)]).await
+}
+
+/// Starts a session for a weighted mix of 1-3 moods (see
+/// `Db::start_session` for the validation rules) — the mood-mixing
+/// counterpart to `start_mood_session`.
+#[tauri::command]
+pub async fn start_mixed_session(
+    state: State<'_, AppState>,
+    moods: Vec<SessionMood>,
+) -> Result<SessionInfo> {
+    let pairs: Vec<(String, u8)> = moods.into_iter().map(|m| (m.mood_id, m.weight)).collect();
+    super::start_session_and_play(&state, &pairs).await
 }
 
 #[tauri::command]
@@ -80,10 +94,10 @@ pub(crate) fn build_listening_stats(state: &AppState) -> Result<ListeningStats> 
     let mut stats = state.db.lock().unwrap().listening_stats()?;
     let ranking = state.db.lock().unwrap().mood_play_counts()?;
 
-    let mut by_category: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
+    let mut by_category: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
     for entry in ranking {
         if let Ok(mood) = state.moods.get(&entry.mood_id) {
-            *by_category.entry(mood.category.clone()).or_insert(0) += entry.play_count;
+            *by_category.entry(mood.category.clone()).or_insert(0.0) += entry.play_count;
         }
     }
     let mut breakdown: Vec<CategoryBreakdown> = by_category
@@ -93,7 +107,7 @@ pub(crate) fn build_listening_stats(state: &AppState) -> Result<ListeningStats> 
             session_count,
         })
         .collect();
-    breakdown.sort_by_key(|entry| std::cmp::Reverse(entry.session_count));
+    breakdown.sort_by(|a, b| b.session_count.partial_cmp(&a.session_count).unwrap());
 
     stats.category_breakdown = breakdown;
     Ok(stats)
@@ -139,7 +153,7 @@ mod tests {
     #[test]
     fn starting_a_session_with_an_unknown_mood_errors() {
         let state = test_state();
-        let err = start_session_impl(&state, "not-a-real-mood").unwrap_err();
+        let err = start_session_impl(&state, &[("not-a-real-mood".to_string(), 100)]).unwrap_err();
         assert!(matches!(err, EchoraError::UnknownMood(_)));
     }
 
@@ -155,9 +169,10 @@ mod tests {
             thumbnail_url: None,
         }]);
 
-        let session = start_session_impl(&state, &mood_id).unwrap();
+        let session = start_session_impl(&state, &[(mood_id.clone(), 100)]).unwrap();
 
-        assert_eq!(session.mood_id, mood_id);
+        assert_eq!(session.moods.len(), 1);
+        assert_eq!(session.moods[0].mood_id, mood_id);
         assert!(state.queue.lock().unwrap().current().is_none());
     }
 
@@ -173,12 +188,17 @@ mod tests {
         let state = test_state();
         let mood = state.moods.list()[0].clone();
 
-        state.db.lock().unwrap().start_session(&mood.id).unwrap();
         state
             .db
             .lock()
             .unwrap()
-            .start_session("not-a-real-mood")
+            .start_session(&[(mood.id.clone(), 100)])
+            .unwrap();
+        state
+            .db
+            .lock()
+            .unwrap()
+            .start_session(&[("not-a-real-mood".to_string(), 100)])
             .unwrap();
 
         let stats = build_listening_stats(&state).unwrap();
@@ -186,14 +206,14 @@ mod tests {
         assert_eq!(stats.total_sessions, 2);
         assert_eq!(stats.category_breakdown.len(), 1);
         assert_eq!(stats.category_breakdown[0].category, mood.category);
-        assert_eq!(stats.category_breakdown[0].session_count, 1);
+        assert_eq!(stats.category_breakdown[0].session_count, 1.0);
     }
 
     #[test]
     fn ending_the_active_session_clears_the_queue() {
         let state = test_state();
         let mood_id = state.moods.list()[0].id.clone();
-        start_session_impl(&state, &mood_id).unwrap();
+        start_session_impl(&state, &[(mood_id, 100)]).unwrap();
         state.queue.lock().unwrap().add_candidates([Track {
             id: "a".into(),
             title: "a".into(),

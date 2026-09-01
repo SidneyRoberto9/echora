@@ -23,8 +23,10 @@ export function useMoods() {
           setFavoriteMoodIds(favoriteSet);
           const recents: string[] = [];
           for (const session of history) {
-            if (!favoriteSet.has(session.mood_id) && !recents.includes(session.mood_id)) {
-              recents.push(session.mood_id);
+            for (const { mood_id } of session.moods) {
+              if (!favoriteSet.has(mood_id) && !recents.includes(mood_id)) {
+                recents.push(mood_id);
+              }
             }
           }
           setRecentMoodIds(recents.slice(0, 4));

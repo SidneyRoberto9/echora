@@ -72,15 +72,19 @@ pub async fn ensure_queue_topped_up(state: State<'_, AppState>) -> Result<()> {
         return Ok(());
     }
 
-    let mood_id = {
+    let moods = {
         let db = state.db.lock().unwrap();
         match db.current_session()? {
-            Some(session) => session.mood_id,
+            Some(session) => session
+                .moods
+                .into_iter()
+                .map(|m| (m.mood_id, m.weight))
+                .collect::<Vec<_>>(),
             None => return Ok(()),
         }
     };
 
-    super::top_up_queue(&state, &mood_id).await
+    super::top_up_queue(&state, &moods).await
 }
 
 /// Clears the way for an ad-hoc single-track play: ends the active
@@ -202,7 +206,12 @@ mod tests {
     fn make_room_for_single_track_ends_an_active_session_and_clears_its_queue() {
         let state = test_state();
         let mood_id = state.moods.list()[0].id.clone();
-        state.db.lock().unwrap().start_session(&mood_id).unwrap();
+        state
+            .db
+            .lock()
+            .unwrap()
+            .start_session(&[(mood_id, 100)])
+            .unwrap();
         state
             .queue
             .lock()

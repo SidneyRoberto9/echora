@@ -6,14 +6,15 @@ interface MoodCardProps {
   favorited?: boolean;
   loading?: boolean;
   disabled?: boolean;
+  selected?: boolean;
   onSelect: (moodId: string) => void;
 }
 
-export function MoodCard({ mood, favorited, loading, disabled, onSelect }: MoodCardProps) {
+export function MoodCard({ mood, favorited, loading, disabled, selected, onSelect }: MoodCardProps) {
   return (
     <button
       type="button"
-      className={`mood-card${favorited ? " is-favorited" : ""}${loading ? " is-loading" : ""}`}
+      className={`mood-card${favorited ? " is-favorited" : ""}${loading ? " is-loading" : ""}${selected ? " is-selected" : ""}`}
       disabled={disabled}
       onClick={() => onSelect(mood.id)}
     >

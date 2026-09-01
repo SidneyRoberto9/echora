@@ -24,5 +24,5 @@ pub async fn surprise_me(state: State<'_, AppState>) -> Result<SessionInfo> {
         picked.id.clone()
     };
 
-    super::start_session_and_play(&state, &mood_id).await
+    super::start_session_and_play(&state, &[(mood_id, 100)]).await
 }

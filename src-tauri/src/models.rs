@@ -57,10 +57,16 @@ impl From<&Mood> for MoodSummary {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SessionMood {
+    pub mood_id: String,
+    pub weight: u8,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct SessionInfo {
     pub id: i64,
-    pub mood_id: String,
+    pub moods: Vec<SessionMood>,
     pub started_at: i64,
     pub ended_at: Option<i64>,
 }
@@ -68,17 +74,20 @@ pub struct SessionInfo {
 #[derive(Debug, Clone, Serialize)]
 pub struct SessionSummary {
     pub id: i64,
-    pub mood_id: String,
+    pub moods: Vec<SessionMood>,
     pub started_at: i64,
     pub ended_at: Option<i64>,
     pub track_count: u32,
 }
 
-/// All-time play count for one mood — the "most played moods" ranking.
+/// Weighted all-time play count for one mood — the "most played moods"
+/// ranking. A mixed session credits each of its moods only its weighted
+/// fraction (a 70/30 mix credits 0.7 to one mood, 0.3 to the other), not a
+/// full play to both.
 #[derive(Debug, Clone, Serialize)]
 pub struct MoodPlayCount {
     pub mood_id: String,
-    pub play_count: i64,
+    pub play_count: f64,
 }
 
 /// A saved, frozen snapshot of a queue — see docs/superpowers/specs/
@@ -97,7 +106,7 @@ pub struct SceneSummary {
 #[derive(Debug, Clone, Serialize)]
 pub struct CategoryBreakdown {
     pub category: String,
-    pub session_count: i64,
+    pub session_count: f64,
 }
 
 /// Aggregate listening stats shown in Discover's Statistics tab.

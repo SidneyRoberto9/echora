@@ -3,8 +3,9 @@ import { EmptyState } from "./EmptyState";
 import { EmptyQueueIcon } from "./icons";
 import { NameModal } from "./NameModal";
 import { api } from "../lib/api";
+import { formatSessionCount } from "../lib/formatSessionCount";
 import type { useDiscover } from "../hooks/useDiscover";
-import type { MoodSummary, SceneSummary, Track } from "../lib/api";
+import type { MoodSummary, SceneSummary, SessionMood, Track } from "../lib/api";
 
 interface LibraryTabProps {
   discover: ReturnType<typeof useDiscover>;
@@ -12,6 +13,7 @@ interface LibraryTabProps {
   startingMoodId: string | null;
   startingTrackId: string | null;
   onStartMood: (moodId: string) => void;
+  onStartMix: (moods: SessionMood[]) => void;
   onPlayTrack: (track: Track) => void;
   onPlayScene: (sceneId: number) => void;
   onError: (message: string) => void;
@@ -41,6 +43,7 @@ export function LibraryTab({
   startingMoodId,
   startingTrackId,
   onStartMood,
+  onStartMix,
   onPlayTrack,
   onPlayScene,
   onError,
@@ -117,7 +120,7 @@ export function LibraryTab({
               onClick={() => onStartMood(entry.mood_id)}
             >
               <span className="library-row__title">{moodName(entry.mood_id)}</span>
-              <span className="library-row__meta">{entry.play_count} sessions</span>
+              <span className="library-row__meta">{formatSessionCount(entry.play_count)} sessions</span>
             </button>
           ))
         )}
@@ -176,9 +179,15 @@ export function LibraryTab({
               type="button"
               className="library-row"
               disabled={busy}
-              onClick={() => onStartMood(session.mood_id)}
+              onClick={() =>
+                session.moods.length > 1
+                  ? onStartMix(session.moods)
+                  : onStartMood(session.moods[0].mood_id)
+              }
             >
-              <span className="library-row__title">{moodName(session.mood_id)}</span>
+              <span className="library-row__title">
+                {session.moods.map((m) => moodName(m.mood_id)).join(" + ")}
+              </span>
               <span className="library-row__meta">
                 {formatDate(session.started_at)} · {session.track_count} tracks
               </span>

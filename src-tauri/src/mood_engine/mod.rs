@@ -45,26 +45,30 @@ pub fn build_scoring_context(db: &Db, recent_session_window: i64) -> Result<Scor
     })
 }
 
-/// The core mood-engine flow: pick queries -> search -> dedup -> score ->
-/// shuffle. If every query in the round fails, the last error is
-/// propagated (a real problem — no internet, broken sidecar); if at least
-/// one query succeeds, a partial result is still useful and no error is
-/// raised just because one query came back empty or failed.
-pub async fn generate_candidates(
-    mood: &Mood,
+/// The core mood-engine flow, mix-aware: splits the round's query budget
+/// across 1-3 moods proportional to weight (see
+/// `candidates::query_counts_for_weights`), searches, dedups, scores,
+/// shuffles. Same partial-failure rule as before: the last error is
+/// propagated only if every query across every mood in the mix failed.
+pub async fn generate_mixed_candidates(
+    moods: &[(&Mood, u8)],
     resolver: &Resolver,
     ctx: &ScoringContext,
     config: &GenerationConfig,
     rng: &mut impl Rng,
 ) -> Result<Vec<Track>> {
-    let queries = candidates::select_queries(mood, config.queries_per_round, rng);
+    let total_budget = config.queries_per_round * moods.len().max(1);
+    let weights: Vec<u8> = moods.iter().map(|(_, weight)| *weight).collect();
+    let counts = candidates::query_counts_for_weights(total_budget, &weights);
 
     let mut raw = Vec::new();
     let mut last_err = None;
-    for query in &queries {
-        match resolver.search(query, config.results_per_query).await {
-            Ok(tracks) => raw.extend(tracks),
-            Err(err) => last_err = Some(err),
+    for ((mood, _), count) in moods.iter().copied().zip(counts) {
+        for query in candidates::select_queries(mood, count, rng) {
+            match resolver.search(&query, config.results_per_query).await {
+                Ok(tracks) => raw.extend(tracks),
+                Err(err) => last_err = Some(err),
+            }
         }
     }
 
@@ -144,9 +148,10 @@ mod smoke_tests {
         let config = GenerationConfig::default();
         let mut rng = StdRng::seed_from_u64(1);
 
-        let candidates = generate_candidates(mood, &resolver, &ctx, &config, &mut rng)
-            .await
-            .unwrap();
+        let candidates =
+            generate_mixed_candidates(&[(mood, 100)], &resolver, &ctx, &config, &mut rng)
+                .await
+                .unwrap();
 
         assert!(!candidates.is_empty());
         let mut ids: Vec<_> = candidates.iter().map(|t| t.id.clone()).collect();
