@@ -179,7 +179,7 @@ pub async fn watch(app: AppHandle) {
             continue;
         }
 
-        let player = state.player.lock().await;
+        let mut player = state.player.lock().await;
         let Ok(Some(position)) = player.position_seconds().await else {
             continue;
         };

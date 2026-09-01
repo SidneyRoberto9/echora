@@ -187,6 +187,8 @@ mod tests {
             player: tokio::sync::Mutex::new(Player::new(
                 PathBuf::from("mpv"),
                 PathBuf::from("/tmp/echora-test-queue-unused.sock"),
+                std::env::temp_dir(),
+                std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             )),
             mpris: None,
             sponsorblock_segments: Mutex::new(Vec::new()),
