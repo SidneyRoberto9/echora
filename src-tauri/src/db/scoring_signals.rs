@@ -111,10 +111,10 @@ mod tests {
     #[test]
     fn recently_played_track_ids_only_looks_at_the_last_n_sessions() {
         let db = Db::open_in_memory().unwrap();
-        let old_session = db.start_session("mood-a").unwrap();
+        let old_session = db.start_session(&[("mood-a".to_string(), 100)]).unwrap();
         db.record_play(old_session.id, &track("old", None), 0, None)
             .unwrap();
-        let new_session = db.start_session("mood-b").unwrap();
+        let new_session = db.start_session(&[("mood-b".to_string(), 100)]).unwrap();
         db.record_play(new_session.id, &track("new", None), 0, None)
             .unwrap();
 
@@ -126,11 +126,11 @@ mod tests {
     #[test]
     fn avg_completion_by_track_averages_across_plays() {
         let db = Db::open_in_memory().unwrap();
-        let session = db.start_session("mood-a").unwrap();
+        let session = db.start_session(&[("mood-a".to_string(), 100)]).unwrap();
         db.record_play(session.id, &track("a", None), 0, Some(1.0))
             .unwrap();
         // Same track played again in a later position within the fixture session.
-        let session2 = db.start_session("mood-a").unwrap();
+        let session2 = db.start_session(&[("mood-a".to_string(), 100)]).unwrap();
         db.record_play(session2.id, &track("a", None), 0, Some(0.5))
             .unwrap();
 
@@ -141,7 +141,7 @@ mod tests {
     #[test]
     fn avg_completion_ignores_plays_with_no_recorded_completion() {
         let db = Db::open_in_memory().unwrap();
-        let session = db.start_session("mood-a").unwrap();
+        let session = db.start_session(&[("mood-a".to_string(), 100)]).unwrap();
         db.record_play(session.id, &track("no-completion", None), 0, None)
             .unwrap();
 

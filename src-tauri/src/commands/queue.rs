@@ -75,7 +75,7 @@ pub async fn ensure_queue_topped_up(state: State<'_, AppState>) -> Result<()> {
     let mood_id = {
         let db = state.db.lock().unwrap();
         match db.current_session()? {
-            Some(session) => session.mood_id,
+            Some(session) => session.moods[0].mood_id.clone(),
             None => return Ok(()),
         }
     };
@@ -202,7 +202,12 @@ mod tests {
     fn make_room_for_single_track_ends_an_active_session_and_clears_its_queue() {
         let state = test_state();
         let mood_id = state.moods.list()[0].id.clone();
-        state.db.lock().unwrap().start_session(&mood_id).unwrap();
+        state
+            .db
+            .lock()
+            .unwrap()
+            .start_session(&[(mood_id, 100)])
+            .unwrap();
         state
             .queue
             .lock()

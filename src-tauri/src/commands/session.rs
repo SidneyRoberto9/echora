@@ -10,7 +10,11 @@ use crate::state::AppState;
 /// Tauri `App` — the command below is a one-line wrapper around it.
 pub(crate) fn start_session_impl(state: &AppState, mood_id: &str) -> Result<SessionInfo> {
     state.moods.get(mood_id)?;
-    let session = state.db.lock().unwrap().start_session(mood_id)?;
+    let session = state
+        .db
+        .lock()
+        .unwrap()
+        .start_session(&[(mood_id.to_string(), 100)])?;
     state.queue.lock().unwrap().clear();
     Ok(session)
 }
@@ -80,10 +84,10 @@ pub(crate) fn build_listening_stats(state: &AppState) -> Result<ListeningStats> 
     let mut stats = state.db.lock().unwrap().listening_stats()?;
     let ranking = state.db.lock().unwrap().mood_play_counts()?;
 
-    let mut by_category: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
+    let mut by_category: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
     for entry in ranking {
         if let Ok(mood) = state.moods.get(&entry.mood_id) {
-            *by_category.entry(mood.category.clone()).or_insert(0) += entry.play_count;
+            *by_category.entry(mood.category.clone()).or_insert(0.0) += entry.play_count;
         }
     }
     let mut breakdown: Vec<CategoryBreakdown> = by_category
@@ -93,7 +97,7 @@ pub(crate) fn build_listening_stats(state: &AppState) -> Result<ListeningStats> 
             session_count,
         })
         .collect();
-    breakdown.sort_by_key(|entry| std::cmp::Reverse(entry.session_count));
+    breakdown.sort_by(|a, b| b.session_count.partial_cmp(&a.session_count).unwrap());
 
     stats.category_breakdown = breakdown;
     Ok(stats)
@@ -157,7 +161,8 @@ mod tests {
 
         let session = start_session_impl(&state, &mood_id).unwrap();
 
-        assert_eq!(session.mood_id, mood_id);
+        assert_eq!(session.moods.len(), 1);
+        assert_eq!(session.moods[0].mood_id, mood_id);
         assert!(state.queue.lock().unwrap().current().is_none());
     }
 
@@ -173,12 +178,17 @@ mod tests {
         let state = test_state();
         let mood = state.moods.list()[0].clone();
 
-        state.db.lock().unwrap().start_session(&mood.id).unwrap();
         state
             .db
             .lock()
             .unwrap()
-            .start_session("not-a-real-mood")
+            .start_session(&[(mood.id.clone(), 100)])
+            .unwrap();
+        state
+            .db
+            .lock()
+            .unwrap()
+            .start_session(&[("not-a-real-mood".to_string(), 100)])
             .unwrap();
 
         let stats = build_listening_stats(&state).unwrap();
@@ -186,7 +196,7 @@ mod tests {
         assert_eq!(stats.total_sessions, 2);
         assert_eq!(stats.category_breakdown.len(), 1);
         assert_eq!(stats.category_breakdown[0].category, mood.category);
-        assert_eq!(stats.category_breakdown[0].session_count, 1);
+        assert_eq!(stats.category_breakdown[0].session_count, 1.0);
     }
 
     #[test]
