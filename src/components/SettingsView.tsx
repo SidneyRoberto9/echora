@@ -1,4 +1,7 @@
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
+import { check, type Update } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
+import { getVersion } from "@tauri-apps/api/app";
 import { useSettings } from "../hooks/useSettings";
 import { api } from "../lib/api";
 
@@ -34,6 +37,99 @@ function Toggle({ on, label, onChange }: ToggleProps) {
         onClick={onChange}
       />
     </span>
+  );
+}
+
+type UpdateStatus = "idle" | "checking" | "up-to-date" | "available" | "downloading" | "installed";
+
+function UpdatesSection({ onError }: { onError: (message: string) => void }) {
+  const [isAppimage, setIsAppimage] = useState<boolean | null>(null);
+  const [version, setVersion] = useState("");
+  const [status, setStatus] = useState<UpdateStatus>("idle");
+  const [availableVersion, setAvailableVersion] = useState<string | null>(null);
+  const pendingUpdate = useRef<Update | null>(null);
+
+  useEffect(() => {
+    api.isAppimageBuild().then(setIsAppimage).catch(() => setIsAppimage(false));
+    getVersion().then(setVersion).catch(() => {});
+  }, []);
+
+  const handleCheck = async () => {
+    setStatus("checking");
+    try {
+      const update = await check();
+      if (update) {
+        pendingUpdate.current = update;
+        setAvailableVersion(update.version);
+        setStatus("available");
+      } else {
+        setStatus("up-to-date");
+      }
+    } catch (err) {
+      onError(err instanceof Error ? err.message : String(err));
+      setStatus("idle");
+    }
+  };
+
+  const handleInstall = async () => {
+    if (!pendingUpdate.current) return;
+    setStatus("downloading");
+    try {
+      await pendingUpdate.current.downloadAndInstall();
+      setStatus("installed");
+      await relaunch();
+    } catch (err) {
+      onError(err instanceof Error ? err.message : String(err));
+      setStatus("available");
+    }
+  };
+
+  if (isAppimage === null) return null;
+
+  return (
+    <>
+      <h2 className="settings-section__title">Updates</h2>
+      {isAppimage ? (
+        <div className="settings-row">
+          <span>
+            <div className="settings-row__label">Version {version}</div>
+            <div className="settings-row__hint">
+              {status === "up-to-date" ? "You're on the latest version" : null}
+              {status === "available" && availableVersion ? `Version ${availableVersion} is available` : null}
+              {status === "downloading" ? "Downloading…" : null}
+              {status === "installed" ? "Installed — restarting…" : null}
+            </div>
+          </span>
+          {status === "available" ? (
+            <button type="button" className="text-link" onClick={handleInstall}>
+              Download &amp; Install
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="text-link"
+              onClick={handleCheck}
+              disabled={status === "checking" || status === "downloading"}
+            >
+              {status === "checking" ? "Checking…" : "Check for Updates"}
+            </button>
+          )}
+        </div>
+      ) : (
+        <p className="settings-section__hint">
+          Auto-update is only available in the AppImage build. Running the
+          .deb package? Check the{" "}
+          <a
+            href="https://github.com/SidneyRoberto9/echora/releases"
+            target="_blank"
+            rel="noreferrer"
+          >
+            releases page
+          </a>{" "}
+          for the latest version.
+        </p>
+      )}
+    </>
   );
 }
 
@@ -104,6 +200,8 @@ export function SettingsView({ onError }: SettingsViewProps) {
             onChange={() => update({ autostart_enabled: !settings.autostart_enabled })}
           />
         </div>
+
+        <UpdatesSection onError={onError} />
       </div>
 
       <div className="settings-column">

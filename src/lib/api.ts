@@ -117,6 +117,7 @@ async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> 
 export const api = {
   listMoods: () => call<MoodSummary[]>("list_moods"),
   surpriseMe: () => call<SessionInfo>("surprise_me"),
+  isAppimageBuild: () => call<boolean>("is_appimage_build"),
 
   getSettings: () => call<Settings>("get_settings"),
   updateSettings: (settings: Settings) => call<void>("update_settings", { settings }),
