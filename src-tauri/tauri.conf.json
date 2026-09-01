@@ -38,7 +38,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "PLACEHOLDER_REPLACE_WITH_REAL_PUBKEY_AT_PACKAGING_TIME",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEY5MUVENzA0MTI4N0EwOEYKUldTUG9JY1NCTmNlK1YyS2s5cTdSeklNRWtsMXdKVnBQRlBoN2ppTFFFSzhhS2VTN3B6c2hmWWoK",
       "endpoints": [
         "https://github.com/SidneyRoberto9/echora/releases/latest/download/latest.json"
       ]
