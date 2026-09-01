@@ -1,13 +1,27 @@
+import { useState } from "react";
 import type { Playback } from "../hooks/usePlayback";
 import { useTrackFeedback } from "../hooks/useTrackFeedback";
-import { BackIcon, HeartIcon, NextIcon, PauseIcon, PlayIcon, PreviousIcon, QueueIcon, ThumbsDownIcon } from "./icons";
+import {
+  BackIcon,
+  HeartIcon,
+  NextIcon,
+  PauseIcon,
+  PlayIcon,
+  PreviousIcon,
+  QueueIcon,
+  SaveIcon,
+  ThumbsDownIcon,
+} from "./icons";
 import { EmptyState } from "./EmptyState";
+import { NameModal } from "./NameModal";
+import { api } from "../lib/api";
 
 interface PlayerViewProps {
   playback: Playback;
   moodName: string | null;
   onCollapse: () => void;
   onOpenQueue: () => void;
+  onError: (message: string) => void;
 }
 
 function formatTime(totalSeconds: number | null): string {
@@ -18,10 +32,21 @@ function formatTime(totalSeconds: number | null): string {
   return `${mins}:${secs.toString().padStart(2, "0")}`;
 }
 
-export function PlayerView({ playback, moodName, onCollapse, onOpenQueue }: PlayerViewProps) {
+export function PlayerView({ playback, moodName, onCollapse, onOpenQueue, onError }: PlayerViewProps) {
   const { queue, isPaused, position, duration, playPause, next, previous, seek } = playback;
   const track = queue.current;
   const { liked, like, dislike } = useTrackFeedback(track);
+  const [showSaveModal, setShowSaveModal] = useState(false);
+
+  const handleSave = async (name: string) => {
+    try {
+      await api.saveScene(name);
+    } catch (err) {
+      onError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setShowSaveModal(false);
+    }
+  };
 
   return (
     <div className="player-view">
@@ -38,9 +63,20 @@ export function PlayerView({ playback, moodName, onCollapse, onOpenQueue }: Play
         ) : (
           <span />
         )}
-        <button type="button" className="icon-btn" aria-label="Queue" onClick={onOpenQueue}>
-          <QueueIcon />
-        </button>
+        <span style={{ display: "flex", gap: 4 }}>
+          <button
+            type="button"
+            className="icon-btn"
+            aria-label="Save as Scene"
+            disabled={!track}
+            onClick={() => setShowSaveModal(true)}
+          >
+            <SaveIcon />
+          </button>
+          <button type="button" className="icon-btn" aria-label="Queue" onClick={onOpenQueue}>
+            <QueueIcon />
+          </button>
+        </span>
       </div>
 
       {!track ? (
@@ -144,6 +180,10 @@ export function PlayerView({ playback, moodName, onCollapse, onOpenQueue }: Play
         <div className="player-view__footer">
           <span>Up next · {queue.upcoming[0].title}</span>
         </div>
+      ) : null}
+
+      {showSaveModal ? (
+        <NameModal title="Save as scene" onConfirm={handleSave} onCancel={() => setShowSaveModal(false)} />
       ) : null}
     </div>
   );

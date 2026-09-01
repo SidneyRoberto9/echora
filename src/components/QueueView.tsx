@@ -1,9 +1,13 @@
+import { useState } from "react";
 import type { Playback } from "../hooks/usePlayback";
-import { CloseIcon, EmptyQueueIcon, PlayIcon } from "./icons";
+import { CloseIcon, EmptyQueueIcon, PlayIcon, SaveIcon } from "./icons";
 import { EmptyState } from "./EmptyState";
+import { NameModal } from "./NameModal";
+import { api } from "../lib/api";
 
 interface QueueViewProps {
   playback: Playback;
+  onError: (message: string) => void;
 }
 
 function formatDuration(seconds: number | null): string {
@@ -13,10 +17,23 @@ function formatDuration(seconds: number | null): string {
   return `${mins}:${secs.toString().padStart(2, "0")}`;
 }
 
-export function QueueView({ playback }: QueueViewProps) {
+export function QueueView({ playback, onError }: QueueViewProps) {
   const { queue, skipTo, remove } = playback;
+  const [showSaveModal, setShowSaveModal] = useState(false);
 
-  if (!queue.current && queue.upcoming.length === 0) {
+  const hasQueue = queue.current !== null || queue.upcoming.length > 0;
+
+  const handleSave = async (name: string) => {
+    try {
+      await api.saveScene(name);
+    } catch (err) {
+      onError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setShowSaveModal(false);
+    }
+  };
+
+  if (!hasQueue) {
     return (
       <EmptyState
         icon={<EmptyQueueIcon />}
@@ -28,6 +45,17 @@ export function QueueView({ playback }: QueueViewProps) {
 
   return (
     <div className="queue-view">
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 4 }}>
+        <button
+          type="button"
+          className="text-link"
+          disabled={!hasQueue}
+          onClick={() => setShowSaveModal(true)}
+        >
+          <SaveIcon size={14} /> Save as Scene
+        </button>
+      </div>
+
       {queue.current ? (
         <>
           <h2 className="queue-view__label">Now Playing</h2>
@@ -90,6 +118,10 @@ export function QueueView({ playback }: QueueViewProps) {
             );
           })}
         </>
+      ) : null}
+
+      {showSaveModal ? (
+        <NameModal title="Save as scene" onConfirm={handleSave} onCancel={() => setShowSaveModal(false)} />
       ) : null}
     </div>
   );

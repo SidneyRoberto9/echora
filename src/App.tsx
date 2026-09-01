@@ -118,7 +118,7 @@ function App() {
             onSurpriseMe={handleSurpriseMe}
           />
         ) : null}
-        {view === "queue" ? <QueueView playback={playback} /> : null}
+        {view === "queue" ? <QueueView playback={playback} onError={reportError} /> : null}
         {view === "discover" ? (
           <DiscoverView
             moodsData={moodsData}
@@ -146,6 +146,7 @@ function App() {
             setPlayerExpanded(false);
             setView("queue");
           }}
+          onError={reportError}
         />
       ) : null}
     </div>

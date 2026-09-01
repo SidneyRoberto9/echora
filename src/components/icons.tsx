@@ -101,6 +101,13 @@ export const ChevronRightIcon = ({ size = 18 }: IconProps) => (
   </svg>
 );
 
+export const SaveIcon = ({ size = 18 }: IconProps) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" {...stroke} aria-hidden="true">
+    <path d="M5 4h11l3 3v13H5V4Z" />
+    <path d="M8 4v6h8V4M8 20v-6h8v6" />
+  </svg>
+);
+
 export const CloseIcon = ({ size = 15 }: IconProps) => (
   <svg width={size} height={size} viewBox="0 0 24 24" {...stroke} aria-hidden="true">
     <path d="M6 6l12 12M18 6 6 18" />
