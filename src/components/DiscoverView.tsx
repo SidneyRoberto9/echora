@@ -15,6 +15,7 @@ interface DiscoverViewProps {
   startingTrackId: string | null;
   onStartMood: (moodId: string) => void;
   onPlayTrack: (track: Track) => void;
+  onPlayScene: (sceneId: number) => void;
 }
 
 export function DiscoverView({
@@ -24,6 +25,7 @@ export function DiscoverView({
   startingTrackId,
   onStartMood,
   onPlayTrack,
+  onPlayScene,
 }: DiscoverViewProps) {
   const [tab, setTab] = useState<DiscoverTab>("library");
   const discover = useDiscover();
@@ -67,6 +69,8 @@ export function DiscoverView({
           startingTrackId={startingTrackId}
           onStartMood={onStartMood}
           onPlayTrack={onPlayTrack}
+          onPlayScene={onPlayScene}
+          onError={onError}
         />
       ) : (
         <StatsTab stats={discover.stats} moods={moodsData.moods} loading={discover.loading} />

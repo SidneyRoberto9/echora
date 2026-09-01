@@ -65,6 +65,23 @@ function App() {
     [playback, reportError],
   );
 
+  const handlePlayScene = useCallback(
+    async (sceneId: number) => {
+      setStartingTrackId(`scene-${sceneId}`);
+      try {
+        await api.playScene(sceneId);
+        setCurrentMoodId(null);
+        await playback.refreshQueue();
+        setPlayerExpanded(true);
+      } catch (err) {
+        reportError(messageOf(err));
+      } finally {
+        setStartingTrackId(null);
+      }
+    },
+    [playback, reportError],
+  );
+
   const handleSurpriseMe = useCallback(async () => {
     setStartingMoodId("surprise");
     try {
@@ -110,6 +127,7 @@ function App() {
             startingTrackId={startingTrackId}
             onStartMood={handleStartMood}
             onPlayTrack={handlePlayTrack}
+            onPlayScene={handlePlayScene}
           />
         ) : null}
         {view === "settings" ? <SettingsView onError={reportError} /> : null}
