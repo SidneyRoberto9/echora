@@ -354,11 +354,16 @@ Note: `send_command` currently takes `&self`; this changes it to `&mut
 self` so it can clear `self.child` on detected crash. That ripples to
 every method that forwards into it — `load`, `set_paused`, `is_paused`,
 `set_volume`, `volume_percent`, `seek_to`, `position_seconds`,
-`duration_seconds` — all become `&mut self` too. Every existing call
-site already goes through `state.player.lock().await` (a `tokio::sync::Mutex`
-guard, mutable by construction), so no call site needs to change — only
-the method signatures in this file do. The two `#[cfg(test)] mod
-smoke_tests` constructors (`Player::new(PathBuf::from("mpv"),
+`duration_seconds` — all become `&mut self` too. Chained call sites
+(`state.player.lock().await.set_paused(true).await?` with no named
+binding) keep compiling unchanged — a temporary's mutability doesn't
+depend on a `let mut`. But 5 call sites bind the guard to a name
+*without* `mut` and then call one of the now-`&mut self` methods on it,
+which does need the binding itself declared `mut`:
+`commands/mod.rs:61` (`toggle_play_pause`), `media/sponsorblock.rs:182`,
+and `platform/mpris.rs:94`, `256`, `336`. Each just needs `let player =`
+changed to `let mut player =`, no other logic changes. The two
+`#[cfg(test)] mod smoke_tests` constructors (`Player::new(PathBuf::from("mpv"),
 socket_path.clone())` and the one in the real-playback test) also need
 the two new `app_dir`/`crash_reporting_enabled` args added, or they
 won't compile even though they're `#[ignore]`d.
