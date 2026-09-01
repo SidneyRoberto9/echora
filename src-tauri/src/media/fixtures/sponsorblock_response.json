@@ -1,0 +1,27 @@
+[
+  {
+    "videoID": "dQw4w9WgXcQ",
+    "segments": [
+      {
+        "segment": [10.5, 45.2],
+        "category": "sponsor",
+        "actionType": "skip"
+      },
+      {
+        "segment": [200.0, 210.0],
+        "category": "selfpromo",
+        "actionType": "mute"
+      }
+    ]
+  },
+  {
+    "videoID": "otherVideoSharingPrefix",
+    "segments": [
+      {
+        "segment": [5.0, 15.0],
+        "category": "intro",
+        "actionType": "skip"
+      }
+    ]
+  }
+]

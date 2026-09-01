@@ -60,6 +60,7 @@ pub fn run() {
                 resolver,
                 player: tokio::sync::Mutex::new(player),
                 mpris,
+                sponsorblock_segments: Mutex::new(Vec::new()),
             });
 
             platform::tray::setup(app)?;
@@ -74,6 +75,8 @@ pub fn run() {
                 .get_settings()?
                 .autostart_enabled;
             platform::autostart::sync(app.handle(), autostart_enabled)?;
+
+            tauri::async_runtime::spawn(media::sponsorblock::watch(app.handle().clone()));
 
             Ok(())
         })

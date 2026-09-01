@@ -45,6 +45,9 @@ pub enum EchoraError {
 
     #[error("autostart error: {0}")]
     Autostart(String),
+
+    #[error("sponsorblock error: {0}")]
+    SponsorBlock(String),
 }
 
 pub type Result<T> = std::result::Result<T, EchoraError>;
@@ -73,6 +76,7 @@ impl EchoraError {
             EchoraError::TrackUnavailable(_) => "track_unavailable",
             EchoraError::SidecarTimeout(_) => "sidecar_timeout",
             EchoraError::Autostart(_) => "autostart_error",
+            EchoraError::SponsorBlock(_) => "sponsorblock_error",
         }
     }
 }

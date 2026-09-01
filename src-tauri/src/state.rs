@@ -1,6 +1,7 @@
 use std::sync::Mutex;
 
 use crate::db::Db;
+use crate::media;
 use crate::media::player::Player;
 use crate::media::resolver::Resolver;
 use crate::moods::MoodCatalog;
@@ -23,4 +24,8 @@ pub struct AppState {
     /// `None` when the D-Bus session bus wasn't reachable at startup — MPRIS
     /// is a nice-to-have desktop integration, never a startup requirement.
     pub mpris: Option<mpris::Handle>,
+    /// Skip-segment data for whatever track is currently playing, kept only
+    /// in memory for the current playback session (see ADR 0009) —
+    /// populated/cleared by `media::sponsorblock::watch`.
+    pub sponsorblock_segments: Mutex<Vec<media::sponsorblock::Segment>>,
 }
