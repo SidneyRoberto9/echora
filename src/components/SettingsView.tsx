@@ -76,11 +76,22 @@ function UpdatesSection({ onError }: { onError: (message: string) => void }) {
     setStatus("downloading");
     try {
       await pendingUpdate.current.downloadAndInstall();
-      setStatus("installed");
-      await relaunch();
     } catch (err) {
       onError(err instanceof Error ? err.message : String(err));
       setStatus("available");
+      return;
+    }
+    setStatus("installed");
+    try {
+      await relaunch();
+    } catch (err) {
+      onError(err instanceof Error ? err.message : String(err));
+      // Install already succeeded — don't revert to "available" (that
+      // would wrongly imply the install itself needs retrying). Status
+      // stays "installed"; the existing hint text ("Installed —
+      // restarting…") already covers the "please restart manually" case
+      // closely enough, and onError surfaces that relaunch specifically
+      // failed.
     }
   };
 
