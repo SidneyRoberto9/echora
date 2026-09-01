@@ -17,8 +17,8 @@ pub struct ResolverConfig {
 
 /// Wraps the yt-dlp sidecar. Rust owns the process: structured output only
 /// (`--dump-json`), a hard timeout per call, arguments always passed as an
-/// argument array (never a shell string), and the child is killed if the
-/// calling future is dropped/cancelled.
+/// argument array (never a shell string), and the child is killed if that
+/// timeout fires (`CommandChild` has no kill-on-drop, so this is explicit).
 pub struct Resolver {
     config: ResolverConfig,
 }
@@ -104,7 +104,7 @@ impl Resolver {
         app: &tauri::AppHandle<R>,
         args: Vec<String>,
     ) -> Result<String> {
-        let (mut rx, _child) = app
+        let (mut rx, child) = app
             .shell()
             .sidecar("yt-dlp")
             .map_err(|e| EchoraError::Sidecar(e.to_string()))?
@@ -131,9 +131,15 @@ impl Resolver {
             (stdout, stderr, exit_success)
         };
 
-        let (stdout, stderr, exit_success) = timeout(self.config.timeout, collect)
-            .await
-            .map_err(|_| EchoraError::SidecarTimeout("yt-dlp".into()))?;
+        let (stdout, stderr, exit_success) = match timeout(self.config.timeout, collect).await {
+            Ok(result) => result,
+            Err(_) => {
+                // `CommandChild` has no kill-on-drop -- dropping it here would
+                // leak yt-dlp (and the Deno process it spawns) as an orphan.
+                let _ = child.kill();
+                return Err(EchoraError::SidecarTimeout("yt-dlp".into()));
+            }
+        };
 
         if exit_success {
             Ok(String::from_utf8_lossy(&stdout).into_owned())
