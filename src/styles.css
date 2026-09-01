@@ -843,7 +843,7 @@ a:hover {
   transition: opacity 0.1s ease;
 }
 .library-row:hover .library-row__actions,
-.library-row__action:focus-visible {
+.library-row:focus-within .library-row__actions {
   opacity: 1;
 }
 .library-row__action {
