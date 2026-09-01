@@ -121,4 +121,12 @@ mod tests {
         let counts = query_counts_for_weights(10, &[80, 20]);
         assert!(counts[0] > counts[1]);
     }
+
+    #[test]
+    fn query_counts_for_weights_floors_a_near_zero_share_at_one() {
+        // Raw math: 2 * 1 / 100.0 = 0.02, rounds to 0 — only the `.max(1)`
+        // floor saves this mood from getting zero search queries.
+        let counts = query_counts_for_weights(2, &[1, 99]);
+        assert_eq!(counts[0], 1);
+    }
 }
