@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useDiscover } from "../hooks/useDiscover";
 import { LibraryTab } from "./LibraryTab";
 import { StatsTab } from "./StatsTab";
@@ -16,6 +16,7 @@ interface DiscoverViewProps {
   onStartMood: (moodId: string) => void;
   onPlayTrack: (track: Track) => void;
   onPlayScene: (sceneId: number) => void;
+  sceneSaveTick: number;
 }
 
 export function DiscoverView({
@@ -26,6 +27,7 @@ export function DiscoverView({
   onStartMood,
   onPlayTrack,
   onPlayScene,
+  sceneSaveTick,
 }: DiscoverViewProps) {
   const [tab, setTab] = useState<DiscoverTab>("library");
   const discover = useDiscover();
@@ -37,6 +39,20 @@ export function DiscoverView({
   useEffect(() => {
     if (moodsData.error) onError(moodsData.error);
   }, [moodsData.error, onError]);
+
+  const isFirstRender = useRef(true);
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+    discover.refreshScenes();
+    // Keyed on the stable `refreshScenes` callback, not the whole
+    // `discover` object — `useDiscover` returns a fresh object literal on
+    // every render, which would refetch scenes constantly instead of only
+    // when `sceneSaveTick` actually changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sceneSaveTick, discover.refreshScenes]);
 
   return (
     <div className="discover-view">

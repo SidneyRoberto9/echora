@@ -9,10 +9,12 @@ interface NameModalProps {
 
 export function NameModal({ title, initialValue = "", onConfirm, onCancel }: NameModalProps) {
   const [value, setValue] = useState(initialValue);
+  const [busy, setBusy] = useState(false);
   const trimmed = value.trim();
 
   const confirm = () => {
-    if (trimmed.length === 0) return;
+    if (busy || trimmed.length === 0) return;
+    setBusy(true);
     onConfirm(trimmed);
   };
 
@@ -41,7 +43,7 @@ export function NameModal({ title, initialValue = "", onConfirm, onCancel }: Nam
           <button type="button" className="text-link" onClick={onCancel}>
             Cancel
           </button>
-          <button type="button" className="text-link" disabled={trimmed.length === 0} onClick={confirm}>
+          <button type="button" className="text-link" disabled={trimmed.length === 0 || busy} onClick={confirm}>
             Save
           </button>
         </div>

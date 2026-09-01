@@ -827,7 +827,6 @@ a:hover {
   gap: 14px;
   flex: 1;
   min-width: 0;
-  padding: 12px 14px;
   border-radius: var(--radius-md);
   text-align: left;
 }
@@ -848,6 +847,7 @@ a:hover {
 }
 .library-row__action {
   padding: 8px 10px;
+  min-height: 44px;
   border-radius: var(--radius-sm);
   font-size: 11px;
   color: var(--text-tertiary);

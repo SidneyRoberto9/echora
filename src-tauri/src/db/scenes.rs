@@ -1,5 +1,5 @@
 use super::Db;
-use crate::error::Result;
+use crate::error::{EchoraError, Result};
 use crate::models::{SceneSummary, Track};
 
 impl Db {
@@ -14,6 +14,9 @@ impl Db {
     /// because `Db` only ever exists inside `Mutex<Db>` in `AppState`, so
     /// the lock already gives exclusive access for the whole call.
     pub fn save_scene(&self, name: &str, tracks: &[Track]) -> Result<SceneSummary> {
+        if tracks.is_empty() {
+            return Err(EchoraError::QueueEmpty);
+        }
         let tx = self.conn.unchecked_transaction()?;
         let created_at = super::now();
         tx.execute(
@@ -148,7 +151,16 @@ mod tests {
         let scenes = db.list_scenes().unwrap();
         assert_eq!(scenes.len(), 2);
         assert_eq!(scenes[0].name, "Second");
+        assert_eq!(scenes[0].track_count, 1);
         assert_eq!(scenes[1].name, "First");
+        assert_eq!(scenes[1].track_count, 1);
+    }
+
+    #[test]
+    fn save_scene_errors_on_an_empty_track_list() {
+        let db = Db::open_in_memory().unwrap();
+        let err = db.save_scene("Empty", &[]).unwrap_err();
+        assert!(matches!(err, EchoraError::QueueEmpty));
     }
 
     #[test]

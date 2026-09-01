@@ -8,6 +8,7 @@ import { api } from "../lib/api";
 interface QueueViewProps {
   playback: Playback;
   onError: (message: string) => void;
+  onSceneSaved: () => void;
 }
 
 function formatDuration(seconds: number | null): string {
@@ -17,7 +18,7 @@ function formatDuration(seconds: number | null): string {
   return `${mins}:${secs.toString().padStart(2, "0")}`;
 }
 
-export function QueueView({ playback, onError }: QueueViewProps) {
+export function QueueView({ playback, onError, onSceneSaved }: QueueViewProps) {
   const { queue, skipTo, remove } = playback;
   const [showSaveModal, setShowSaveModal] = useState(false);
 
@@ -26,6 +27,7 @@ export function QueueView({ playback, onError }: QueueViewProps) {
   const handleSave = async (name: string) => {
     try {
       await api.saveScene(name);
+      onSceneSaved();
     } catch (err) {
       onError(err instanceof Error ? err.message : String(err));
     } finally {

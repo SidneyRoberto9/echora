@@ -22,6 +22,7 @@ interface PlayerViewProps {
   onCollapse: () => void;
   onOpenQueue: () => void;
   onError: (message: string) => void;
+  onSceneSaved: () => void;
 }
 
 function formatTime(totalSeconds: number | null): string {
@@ -32,7 +33,14 @@ function formatTime(totalSeconds: number | null): string {
   return `${mins}:${secs.toString().padStart(2, "0")}`;
 }
 
-export function PlayerView({ playback, moodName, onCollapse, onOpenQueue, onError }: PlayerViewProps) {
+export function PlayerView({
+  playback,
+  moodName,
+  onCollapse,
+  onOpenQueue,
+  onError,
+  onSceneSaved,
+}: PlayerViewProps) {
   const { queue, isPaused, position, duration, playPause, next, previous, seek } = playback;
   const track = queue.current;
   const { liked, like, dislike } = useTrackFeedback(track);
@@ -41,6 +49,7 @@ export function PlayerView({ playback, moodName, onCollapse, onOpenQueue, onErro
   const handleSave = async (name: string) => {
     try {
       await api.saveScene(name);
+      onSceneSaved();
     } catch (err) {
       onError(err instanceof Error ? err.message : String(err));
     } finally {

@@ -25,11 +25,13 @@ function App() {
   const [startingTrackId, setStartingTrackId] = useState<string | null>(null);
   const [currentMoodId, setCurrentMoodId] = useState<string | null>(null);
   const [globalError, setGlobalError] = useState<string | null>(null);
+  const [sceneSaveTick, setSceneSaveTick] = useState(0);
 
   const playback = usePlayback();
   const moodsData = useMoods();
 
   const reportError = useCallback((message: string) => setGlobalError(message), []);
+  const onSceneSaved = useCallback(() => setSceneSaveTick((t) => t + 1), []);
 
   const handleStartMood = useCallback(
     async (moodId: string) => {
@@ -118,7 +120,9 @@ function App() {
             onSurpriseMe={handleSurpriseMe}
           />
         ) : null}
-        {view === "queue" ? <QueueView playback={playback} onError={reportError} /> : null}
+        {view === "queue" ? (
+          <QueueView playback={playback} onError={reportError} onSceneSaved={onSceneSaved} />
+        ) : null}
         {view === "discover" ? (
           <DiscoverView
             moodsData={moodsData}
@@ -128,6 +132,7 @@ function App() {
             onStartMood={handleStartMood}
             onPlayTrack={handlePlayTrack}
             onPlayScene={handlePlayScene}
+            sceneSaveTick={sceneSaveTick}
           />
         ) : null}
         {view === "settings" ? <SettingsView onError={reportError} /> : null}
@@ -147,6 +152,7 @@ function App() {
             setView("queue");
           }}
           onError={reportError}
+          onSceneSaved={onSceneSaved}
         />
       ) : null}
     </div>
