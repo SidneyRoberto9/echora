@@ -221,11 +221,14 @@ won't be part of any commit — only the 4 tracked files above are.)
 **Files:**
 - Modify: `src-tauri/src/media/player.rs`
 - Modify: `src-tauri/src/error.rs` (new `Sidecar` error variant)
-- Modify: `src-tauri/src/commands/mod.rs` (`resolve_and_load`,
-  `top_up_queue`, `start_session_and_play` gain an `app` parameter)
+- Modify: `src-tauri/src/commands/mod.rs` (`resolve_and_load` and
+  `start_session_and_play` gain an `app` parameter — **not**
+  `top_up_queue`, that's Task 3's, see Step 4 below)
 - Modify: `src-tauri/src/commands/mood.rs`, `src-tauri/src/commands/queue.rs`,
   `src-tauri/src/commands/session.rs` (thread `app: tauri::AppHandle`
-  through every `#[tauri::command]` that calls into the functions above)
+  through every `#[tauri::command]` that calls `resolve_and_load` or
+  `start_session_and_play` — not the one that calls `top_up_queue`
+  directly)
 - Modify: `src-tauri/src/lib.rs` (`Player::new` call site, shutdown
   block)
 - Modify: `src-tauri/src/media/sidecar_paths.rs` (remove just the now-
@@ -411,24 +414,26 @@ pub(crate) async fn resolve_and_load(
 }
 ```
 
-Do the same for its callers in the same file:
+Do the same for `resolve_and_load`'s caller in the same file — but
+**leave `top_up_queue` completely untouched in this task**. It's a
+Player-unrelated function (it only calls `mood_engine::generate_mixed_candidates`,
+never touches `Player`) — it will need `app` too, but only because Task
+3's `Resolver` rewrite needs it internally, not because of anything in
+this task. If Task 2 added `app` to `top_up_queue`'s signature now, the
+call to `generate_mixed_candidates` inside it would need to pass `app`
+too — but that function's signature isn't updated to accept it until
+Task 3, so the crate would fail to compile until Task 3 also lands,
+breaking this task's own "must compile and pass `cargo test`"
+verification step. Task 3 owns `top_up_queue` entirely.
 
 ```rust
-pub(crate) async fn top_up_queue(app: &tauri::AppHandle, state: &AppState, moods: &[(String, u8)]) -> Result<()> {
-    // ...unchanged body, except:
-    let candidates =
-        mood_engine::generate_mixed_candidates(app, &resolved, &state.resolver, &ctx, &config, &mut rng)
-            .await?; // Task 3 threads `app` into generate_mixed_candidates
-    // ...
-}
-
 pub(crate) async fn start_session_and_play(
     app: &tauri::AppHandle,
     state: &AppState,
     moods: &[(String, u8)],
 ) -> Result<SessionInfo> {
     let session = crate::commands::session::start_session_impl(state, moods)?;
-    top_up_queue(app, state, moods).await?;
+    top_up_queue(state, moods).await?; // unchanged call — Task 3 adds `app` here
 
     let current = state.queue.lock().unwrap().current().cloned();
     if let Some(track) = current {
@@ -440,12 +445,18 @@ pub(crate) async fn start_session_and_play(
 
 - [ ] **Step 5: Thread `app` from every `#[tauri::command]` entry point down to these helpers**
 
-Run `grep -n "start_session_and_play\|resolve_and_load\|top_up_queue" src-tauri/src/commands/*.rs`
-to find every call site (there were 9 at the time this plan was written
-— `commands/mood.rs`, `commands/queue.rs` (6 sites), `commands/session.rs`
-(2 sites); re-run the grep yourself since Task 1/later work may have
-shifted line numbers). For each `#[tauri::command]` function that calls
-one of these three helpers:
+Run `grep -n "start_session_and_play\|resolve_and_load" src-tauri/src/commands/*.rs`
+to find every call site (there were 8 at the time this plan was written
+— `commands/mood.rs` (1 site), `commands/queue.rs` (5 sites),
+`commands/session.rs` (2 sites); re-run the grep yourself since Task
+1/later work may have shifted line numbers). **Do not include
+`top_up_queue`** in this grep or this task — it has its own direct
+caller too (`commands/queue.rs`'s `ensure_queue_topped_up` command,
+which calls `super::top_up_queue(&state, &moods)` directly, never
+through `start_session_and_play`), and per Step 4 above, `top_up_queue`
+and that command are entirely Task 3's responsibility. For each
+`#[tauri::command]` function that calls `start_session_and_play` or
+`resolve_and_load`:
 
 1. If the command function doesn't already take an `app: tauri::AppHandle`
    parameter, add one (Tauri auto-injects it — no frontend/IPC change
@@ -590,7 +601,9 @@ message: `feat(packaging): spawn mpv via tauri-plugin-shell`.
 
 **Interfaces:**
 - Consumes: Task 2's `app: &tauri::AppHandle<R>` already threaded
-  through `resolve_and_load`/`top_up_queue`/`start_session_and_play`;
+  through `resolve_and_load`/`start_session_and_play` (and available to
+  reuse inside `start_session_and_play`'s existing `app` parameter for
+  the `top_up_queue` call this task adds — see Step 4);
   `tauri_plugin_shell::ShellExt` (Task 1).
 - Produces: `Resolver::new(config: ResolverConfig) -> Resolver` (keeps
   the same shape — `ResolverConfig` still carries `deno_path: PathBuf`
@@ -811,19 +824,53 @@ compile).
     }
 ```
 
-- [ ] **Step 4: Thread `app` into `mood_engine::generate_mixed_candidates`**
+- [ ] **Step 4: Thread `app` into `generate_mixed_candidates` and `top_up_queue`**
+
+This whole chain is this task's responsibility — Task 2 deliberately
+left `top_up_queue` untouched (see Task 2, Step 4's note) specifically
+because it's `Resolver`, not `Player`, that needs `app` here.
 
 In `src-tauri/src/mood_engine/mod.rs`, add `app: &tauri::AppHandle<R>`
 (generic over `R: tauri::Runtime`) as `generate_mixed_candidates`'s
-first parameter, and pass it into whatever call it makes to
-`resolver.search(...)` around line 68 (`match resolver.search(&query,
+first parameter, and pass it into its call to `resolver.search(...)`
+around line 68 (`match resolver.search(&query,
 config.results_per_query).await` becomes `match resolver.search(app,
-&query, config.results_per_query).await`). Task 2, Step 4 already
-updated `top_up_queue` (this function's caller) to accept and forward
-`app` — confirm that wiring is in place; if `top_up_queue` didn't end
-up calling `generate_mixed_candidates` the way Task 2's sketch assumed
-(the actual code may differ slightly), thread `app` through whatever
-the real call chain is, verified by `cargo build`.
+&query, config.results_per_query).await`).
+
+In `src-tauri/src/commands/mod.rs`, add `app: &tauri::AppHandle<R>` as
+`top_up_queue`'s first parameter, and pass it into its call to
+`generate_mixed_candidates`:
+
+```rust
+pub(crate) async fn top_up_queue<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    state: &AppState,
+    moods: &[(String, u8)],
+) -> Result<()> {
+    // ...unchanged body, except:
+    let candidates =
+        mood_engine::generate_mixed_candidates(app, &resolved, &state.resolver, &ctx, &config, &mut rng)
+            .await?;
+    // ...
+}
+```
+
+Then update its two callers:
+
+1. `start_session_and_play` (same file, Task 2 already gave it an
+   `app` parameter for its own `resolve_and_load` call) — change its
+   existing `top_up_queue(state, moods).await?;` line to
+   `top_up_queue(app, state, moods).await?;`.
+2. `commands/queue.rs`'s `ensure_queue_topped_up` command (the one
+   direct caller of `top_up_queue` that doesn't go through
+   `start_session_and_play` — `super::top_up_queue(&state, &moods).await`
+   at the time this plan was written; re-locate it, line numbers may
+   have shifted) — add `app: tauri::AppHandle` to that command's own
+   signature (Tauri auto-injects it) if it doesn't already have one,
+   and pass `&app` into the call.
+
+Verify with `cargo build` — a missed call site is a compile error
+naming exactly where to fix next.
 
 - [ ] **Step 5: Update `lib.rs`'s `Resolver::new`/`ResolverConfig` construction**
 
