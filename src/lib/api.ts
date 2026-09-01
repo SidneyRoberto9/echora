@@ -65,6 +65,13 @@ export interface SceneSummary {
   track_count: number;
 }
 
+export interface CrashSummary {
+  id: string;
+  kind: "Panic" | "SidecarCrash" | "FrontendError";
+  timestamp: number;
+  message: string;
+}
+
 export interface QueueView {
   current: Track | null;
   upcoming: Track[];
@@ -129,6 +136,11 @@ export const api = {
   listHistory: (limit: number, offset: number) =>
     call<SessionSummary[]>("list_history", { limit, offset }),
   clearHistory: () => call<void>("clear_history"),
+  listCrashReports: () => call<CrashSummary[]>("list_crash_reports"),
+  getCrashReportMarkdown: (id: string) => call<string>("get_crash_report_markdown", { id }),
+  clearCrashReports: () => call<void>("clear_crash_reports"),
+  reportFrontendCrash: (message: string, stack?: string) =>
+    call<void>("report_frontend_crash", { message, stack: stack ?? null }),
 
   getQueue: () => call<QueueView>("get_queue"),
   queueNext: () => call<Track | null>("queue_next"),
