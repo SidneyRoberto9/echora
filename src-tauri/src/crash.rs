@@ -225,6 +225,8 @@ mod tests {
     use super::*;
     use std::sync::atomic::AtomicU32;
 
+    static PANIC_HOOK_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     fn unique_temp_dir(label: &str) -> PathBuf {
         static COUNTER: AtomicU32 = AtomicU32::new(0);
         let n = COUNTER.fetch_add(1, Ordering::Relaxed);
@@ -339,6 +341,7 @@ mod tests {
 
     #[test]
     fn install_panic_hook_writes_a_record_when_enabled() {
+        let _guard = PANIC_HOOK_TEST_LOCK.lock().unwrap();
         let dir = unique_temp_dir("panic-hook-on");
         let enabled = Arc::new(AtomicBool::new(true));
         let previous = std::panic::take_hook();
@@ -355,6 +358,7 @@ mod tests {
 
     #[test]
     fn install_panic_hook_writes_nothing_when_disabled() {
+        let _guard = PANIC_HOOK_TEST_LOCK.lock().unwrap();
         let dir = unique_temp_dir("panic-hook-off");
         let enabled = Arc::new(AtomicBool::new(false));
         let previous = std::panic::take_hook();
