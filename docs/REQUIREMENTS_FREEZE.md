@@ -32,18 +32,17 @@ maintainer explicitly requests a change.
 
 ## V1 scope
 
-**In:** auto-update, free-text search, Smart Search, Scenes, Mood
-Mixing, Intensity, Discover, Statistics, SponsorBlock, autostart on
-system startup.
+**In:** auto-update, free-text search, Scenes, Mood Mixing, Intensity,
+Discover, Statistics, SponsorBlock, autostart on system startup.
 
-**Out:** download/offline mode.
+**Out:** download/offline mode, Smart Search (removed from scope).
 
 Being "in v1" doesn't mean built first — the internal build order
 follows the phases in the main project brief: the core mood → search →
 resolve → queue → playback → background-controls → history loop lands
-first; Smart Search, Scenes, Mood Mixing, Intensity, Discover,
-Statistics, SponsorBlock, and autostart layer on afterward, once the
-core is validated.
+first; Scenes, Mood Mixing, Intensity, Discover, Statistics,
+SponsorBlock, and autostart layer on afterward, once the core is
+validated.
 
 ## Product behavior
 
