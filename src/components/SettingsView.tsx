@@ -31,7 +31,13 @@ function formatRelativeTime(unixMillis: number): string {
   return `${Math.round(diffHours / 24)}d ago`;
 }
 
-function CrashReportsList({ enabled }: { enabled: boolean }) {
+function CrashReportsList({
+  enabled,
+  onError,
+}: {
+  enabled: boolean;
+  onError: (message: string) => void;
+}) {
   const [reports, setReports] = useState<CrashSummary[]>([]);
 
   useEffect(() => {
@@ -42,15 +48,21 @@ function CrashReportsList({ enabled }: { enabled: boolean }) {
   }, [enabled]);
 
   const handleReport = async (id: string) => {
-    const body = await api.getCrashReportMarkdown(id);
-    const url = `${GITHUB_ISSUES_URL}?title=${encodeURIComponent(`Crash report: ${id}`)}&body=${encodeURIComponent(body)}&labels=crash-report`;
-    await openUrl(url);
+    try {
+      const body = await api.getCrashReportMarkdown(id);
+      const url = `${GITHUB_ISSUES_URL}?title=${encodeURIComponent(`Crash report: ${id}`)}&body=${encodeURIComponent(body)}&labels=crash-report`;
+      await openUrl(url);
+    } catch (err) {
+      onError(err instanceof Error ? err.message : String(err));
+    }
   };
 
   const handleClearAll = async () => {
-    await api.clearCrashReports();
-    if (enabled) {
+    try {
+      await api.clearCrashReports();
       api.listCrashReports().then(setReports).catch(() => {});
+    } catch (err) {
+      onError(err instanceof Error ? err.message : String(err));
     }
   };
 
@@ -335,7 +347,7 @@ export function SettingsView({ onError }: SettingsViewProps) {
             onChange={() => update({ crash_report_enabled: !settings.crash_report_enabled })}
           />
         </div>
-        <CrashReportsList enabled={settings.crash_report_enabled} />
+        <CrashReportsList enabled={settings.crash_report_enabled} onError={onError} />
         <div className="privacy-note">No account · No cloud · No telemetry by default</div>
       </div>
     </div>

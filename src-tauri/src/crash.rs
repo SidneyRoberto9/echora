@@ -8,12 +8,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{EchoraError, Result};
 
-#[allow(dead_code)]
 const MAX_RETAINED: usize = 10;
-#[allow(dead_code)]
 const MAX_MARKDOWN_BODY_CHARS: usize = 4000;
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum CrashKind {
     Panic,
@@ -21,7 +18,6 @@ pub enum CrashKind {
     FrontendError,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CrashRecord {
     pub kind: CrashKind,
@@ -37,7 +33,6 @@ pub struct CrashRecord {
     pub arch: String,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize)]
 pub struct CrashSummary {
     pub id: String,
@@ -47,7 +42,6 @@ pub struct CrashSummary {
 }
 
 impl CrashRecord {
-    #[allow(dead_code)]
     fn new(
         kind: CrashKind,
         message: String,
@@ -69,7 +63,6 @@ impl CrashRecord {
         }
     }
 
-    #[allow(dead_code)]
     pub fn from_panic(info: &std::panic::PanicHookInfo) -> Self {
         let message = info
             .payload()
@@ -82,7 +75,6 @@ impl CrashRecord {
         CrashRecord::new(CrashKind::Panic, message, location, Some(backtrace))
     }
 
-    #[allow(dead_code)]
     pub fn from_sidecar(process: &str, detail: &str) -> Self {
         CrashRecord::new(
             CrashKind::SidecarCrash,
@@ -92,18 +84,15 @@ impl CrashRecord {
         )
     }
 
-    #[allow(dead_code)]
     pub fn from_frontend(message: String, stack: Option<String>) -> Self {
         CrashRecord::new(CrashKind::FrontendError, message, None, stack)
     }
 }
 
-#[allow(dead_code)]
 fn crashes_dir(app_dir: &Path) -> PathBuf {
     app_dir.join("crashes")
 }
 
-#[allow(dead_code)]
 fn kind_slug(kind: &CrashKind) -> &'static str {
     match kind {
         CrashKind::Panic => "panic",
@@ -115,7 +104,6 @@ fn kind_slug(kind: &CrashKind) -> &'static str {
 /// Best-effort: a failure to write a crash record must never itself panic
 /// or bubble up as a user-facing error, so every caller discards the
 /// `Result` with `let _ =`.
-#[allow(dead_code)]
 pub fn record(app_dir: &Path, event: CrashRecord) -> std::io::Result<()> {
     let dir = crashes_dir(app_dir);
     fs::create_dir_all(&dir)?;
@@ -124,7 +112,6 @@ pub fn record(app_dir: &Path, event: CrashRecord) -> std::io::Result<()> {
     enforce_retention(&dir)
 }
 
-#[allow(dead_code)]
 fn enforce_retention(dir: &Path) -> std::io::Result<()> {
     let mut entries: Vec<PathBuf> = fs::read_dir(dir)?
         .filter_map(|e| e.ok())
@@ -142,7 +129,6 @@ fn enforce_retention(dir: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-#[allow(dead_code)]
 pub fn list(app_dir: &Path) -> std::io::Result<Vec<CrashSummary>> {
     let dir = crashes_dir(app_dir);
     if !dir.exists() {
@@ -166,14 +152,17 @@ pub fn list(app_dir: &Path) -> std::io::Result<Vec<CrashSummary>> {
     Ok(summaries)
 }
 
-#[allow(dead_code)]
 fn read_one(app_dir: &Path, id: &str) -> Result<CrashRecord> {
+    if !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+        return Err(EchoraError::Io(std::io::Error::from(
+            std::io::ErrorKind::NotFound,
+        )));
+    }
     let path = crashes_dir(app_dir).join(format!("{id}.json"));
     let bytes = fs::read(path).map_err(EchoraError::Io)?;
     Ok(serde_json::from_slice(&bytes)?)
 }
 
-#[allow(dead_code)]
 pub fn to_markdown(app_dir: &Path, id: &str) -> Result<String> {
     let r = read_one(app_dir, id)?;
     let mut body = format!(
@@ -197,7 +186,6 @@ pub fn to_markdown(app_dir: &Path, id: &str) -> Result<String> {
     Ok(body)
 }
 
-#[allow(dead_code)]
 pub fn clear(app_dir: &Path) -> std::io::Result<()> {
     let dir = crashes_dir(app_dir);
     if dir.exists() {
@@ -209,7 +197,6 @@ pub fn clear(app_dir: &Path) -> std::io::Result<()> {
 /// Chains onto Rust's default panic hook (so `cargo tauri dev` still
 /// prints panics to stderr) and additionally persists a crash record
 /// when enabled. Call once, at startup. Must never itself panic.
-#[allow(dead_code)]
 pub fn install_panic_hook(app_dir: PathBuf, enabled: Arc<AtomicBool>) {
     let default_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
@@ -315,6 +302,15 @@ mod tests {
         let dir = unique_temp_dir("markdown-missing");
 
         let err = to_markdown(&dir, "does-not-exist").unwrap_err();
+
+        assert!(matches!(err, EchoraError::Io(_)));
+    }
+
+    #[test]
+    fn to_markdown_rejects_a_path_traversal_id() {
+        let dir = unique_temp_dir("path-traversal");
+
+        let err = to_markdown(&dir, "../../../../etc/passwd").unwrap_err();
 
         assert!(matches!(err, EchoraError::Io(_)));
     }
