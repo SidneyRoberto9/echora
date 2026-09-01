@@ -35,5 +35,13 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "PLACEHOLDER_REPLACE_WITH_REAL_PUBKEY_AT_PACKAGING_TIME",
+      "endpoints": [
+        "https://github.com/SidneyRoberto9/echora/releases/latest/download/latest.json"
+      ]
+    }
   }
 }
