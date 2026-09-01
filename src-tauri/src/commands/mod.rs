@@ -42,11 +42,15 @@ pub(crate) async fn top_up_queue(state: &AppState, moods: &[(String, u8)]) -> Re
 /// Resolves `track` to a playable stream and hands it to the mpv sidecar,
 /// starting mpv on first use. The one place playback actually begins —
 /// every command that changes "what's current" routes through this.
-pub(crate) async fn resolve_and_load(state: &AppState, track: &Track) -> Result<()> {
+pub(crate) async fn resolve_and_load(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    track: &Track,
+) -> Result<()> {
     let resolved = state.resolver.resolve_with_retry(&track.id).await?;
     let mut player = state.player.lock().await;
     if !player.is_started() {
-        player.start().await?;
+        player.start(app).await?;
     }
     player.load(&resolved.stream_url).await?;
     drop(player);
@@ -120,6 +124,7 @@ pub(crate) async fn record_current_completion(state: &AppState) -> Result<()> {
 /// `start_mixed_session`, and `surprise_me`, which only differ in how they
 /// pick `moods`.
 pub(crate) async fn start_session_and_play(
+    app: &tauri::AppHandle,
     state: &AppState,
     moods: &[(String, u8)],
 ) -> Result<SessionInfo> {
@@ -128,7 +133,7 @@ pub(crate) async fn start_session_and_play(
 
     let current = state.queue.lock().unwrap().current().cloned();
     if let Some(track) = current {
-        resolve_and_load(state, &track).await?;
+        resolve_and_load(app, state, &track).await?;
     }
     Ok(session)
 }

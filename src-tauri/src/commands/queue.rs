@@ -20,12 +20,15 @@ pub fn get_queue(state: State<AppState>) -> QueueView {
 /// already at its end (callers should top up and retry, or show an
 /// end-of-queue state).
 #[tauri::command]
-pub async fn queue_next(state: State<'_, AppState>) -> Result<Option<Track>> {
+pub async fn queue_next(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Option<Track>> {
     super::record_current_completion(&state).await?;
 
     let advanced = state.queue.lock().unwrap().next().cloned();
     if let Some(track) = &advanced {
-        super::resolve_and_load(&state, track).await?;
+        super::resolve_and_load(&app, &state, track).await?;
     }
 
     // Best-effort: a stalled top-up shouldn't fail an otherwise-successful skip.
@@ -37,23 +40,30 @@ pub async fn queue_next(state: State<'_, AppState>) -> Result<Option<Track>> {
 /// first track of the queue — callers should just seek the current track
 /// to 0 in that case rather than treating it as an error.
 #[tauri::command]
-pub async fn queue_previous(state: State<'_, AppState>) -> Result<Option<Track>> {
+pub async fn queue_previous(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Option<Track>> {
     let went_back = state.queue.lock().unwrap().previous().cloned();
     if let Some(track) = &went_back {
-        super::resolve_and_load(&state, track).await?;
+        super::resolve_and_load(&app, &state, track).await?;
     }
     Ok(went_back)
 }
 
 #[tauri::command]
-pub async fn queue_skip_to(state: State<'_, AppState>, index: usize) -> Result<Track> {
+pub async fn queue_skip_to(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    index: usize,
+) -> Result<Track> {
     super::record_current_completion(&state).await?;
 
     let track = {
         let mut queue = state.queue.lock().unwrap();
         queue.skip_to(index)?.clone()
     };
-    super::resolve_and_load(&state, &track).await?;
+    super::resolve_and_load(&app, &state, &track).await?;
     Ok(track)
 }
 
@@ -113,10 +123,14 @@ pub(crate) fn make_room_for_single_track(state: &AppState) -> Result<()> {
 /// `MiniPlayerBar`/`PlayerView` (which read `queue.current`) would show
 /// stale now-playing state. See `make_room_for_single_track`.
 #[tauri::command]
-pub async fn play_single_track(state: State<'_, AppState>, track: Track) -> Result<()> {
+pub async fn play_single_track(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    track: Track,
+) -> Result<()> {
     make_room_for_single_track(&state)?;
     state.queue.lock().unwrap().add_candidates([track.clone()]);
-    super::resolve_and_load(&state, &track).await
+    super::resolve_and_load(&app, &state, &track).await
 }
 
 pub(crate) fn save_scene_impl(state: &AppState, name: &str) -> Result<SceneSummary> {
@@ -137,19 +151,27 @@ pub fn list_scenes(state: State<AppState>) -> Result<Vec<SceneSummary>> {
     state.db.lock().unwrap().list_scenes()
 }
 
-pub(crate) async fn play_scene_impl(state: &AppState, scene_id: i64) -> Result<()> {
+pub(crate) async fn play_scene_impl(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    scene_id: i64,
+) -> Result<()> {
     let tracks = state.db.lock().unwrap().scene_tracks(scene_id)?;
     let Some(first) = tracks.first().cloned() else {
         return Err(EchoraError::QueueEmpty);
     };
     make_room_for_single_track(state)?;
     state.queue.lock().unwrap().add_candidates(tracks);
-    super::resolve_and_load(state, &first).await
+    super::resolve_and_load(app, state, &first).await
 }
 
 #[tauri::command]
-pub async fn play_scene(state: State<'_, AppState>, scene_id: i64) -> Result<()> {
-    play_scene_impl(&state, scene_id).await
+pub async fn play_scene(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    scene_id: i64,
+) -> Result<()> {
+    play_scene_impl(&app, &state, scene_id).await
 }
 
 #[tauri::command]
@@ -185,7 +207,6 @@ mod tests {
                 timeout: Duration::from_secs(30),
             }),
             player: tokio::sync::Mutex::new(Player::new(
-                PathBuf::from("mpv"),
                 PathBuf::from("/tmp/echora-test-queue-unused.sock"),
                 std::env::temp_dir(),
                 std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),

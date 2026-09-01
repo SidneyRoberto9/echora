@@ -58,13 +58,13 @@ pub fn setup(app: &App) -> tauri::Result<()> {
                 "next" => {
                     tauri::async_runtime::spawn(async move {
                         let state = app.state::<AppState>();
-                        let _ = commands::queue::queue_next(state).await;
+                        let _ = commands::queue::queue_next(app.clone(), state).await;
                     });
                 }
                 "previous" => {
                     tauri::async_runtime::spawn(async move {
                         let state = app.state::<AppState>();
-                        let _ = commands::queue::queue_previous(state).await;
+                        let _ = commands::queue::queue_previous(app.clone(), state).await;
                     });
                 }
                 _ => {}

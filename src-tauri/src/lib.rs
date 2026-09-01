@@ -67,7 +67,6 @@ pub fn run() {
                 timeout: std::time::Duration::from_secs(30),
             });
             let player = media::player::Player::new(
-                sidecar_paths.mpv,
                 app_dir.join("mpv-ipc.sock"),
                 app_dir.clone(),
                 crash_reporting_enabled.clone(),

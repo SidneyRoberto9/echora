@@ -12,7 +12,6 @@ use std::path::PathBuf;
 pub struct SidecarPaths {
     pub yt_dlp: PathBuf,
     pub deno: PathBuf,
-    pub mpv: PathBuf,
 }
 
 impl SidecarPaths {
@@ -21,7 +20,6 @@ impl SidecarPaths {
         SidecarPaths {
             yt_dlp: dev_dir.join("yt-dlp_linux"),
             deno: dev_dir.join("deno"),
-            mpv: PathBuf::from("mpv"),
         }
     }
 }

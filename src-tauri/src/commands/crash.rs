@@ -74,7 +74,6 @@ mod tests {
                 timeout: Duration::from_secs(30),
             }),
             player: tokio::sync::Mutex::new(Player::new(
-                PathBuf::from("mpv"),
                 PathBuf::from("/tmp/echora-test-crash-cmd-unused.sock"),
                 app_dir.clone(),
                 Arc::new(AtomicBool::new(false)),
