@@ -72,15 +72,19 @@ pub async fn ensure_queue_topped_up(state: State<'_, AppState>) -> Result<()> {
         return Ok(());
     }
 
-    let mood_id = {
+    let moods = {
         let db = state.db.lock().unwrap();
         match db.current_session()? {
-            Some(session) => session.moods[0].mood_id.clone(),
+            Some(session) => session
+                .moods
+                .into_iter()
+                .map(|m| (m.mood_id, m.weight))
+                .collect::<Vec<_>>(),
             None => return Ok(()),
         }
     };
 
-    super::top_up_queue(&state, &mood_id).await
+    super::top_up_queue(&state, &moods).await
 }
 
 /// Clears the way for an ad-hoc single-track play: ends the active

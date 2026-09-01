@@ -17,6 +17,20 @@ pub fn select_queries(mood: &Mood, count: usize, rng: &mut impl Rng) -> Vec<Stri
     queries
 }
 
+/// Splits `total_budget` search-query slots across moods proportional to
+/// their weight, rounding each share and guaranteeing every mood gets at
+/// least 1 — a small budget or a low-weight mood in a big mix must still get
+/// a chance to contribute.
+pub fn query_counts_for_weights(total_budget: usize, weights: &[u8]) -> Vec<usize> {
+    weights
+        .iter()
+        .map(|&weight| {
+            let share = ((total_budget as f32) * (weight as f32) / 100.0).round() as usize;
+            share.max(1)
+        })
+        .collect()
+}
+
 /// Removes tracks already seen earlier in the same candidate batch (same
 /// video surfacing from more than one search query), keeping the first
 /// occurrence.
@@ -93,5 +107,18 @@ mod tests {
     #[test]
     fn dedup_of_empty_input_is_empty() {
         assert!(dedup(vec![]).is_empty());
+    }
+
+    #[test]
+    fn query_counts_for_weights_never_leaves_a_mood_at_zero() {
+        let counts = query_counts_for_weights(6, &[70, 20, 10]);
+        assert_eq!(counts.len(), 3);
+        assert!(counts.iter().all(|&c| c >= 1));
+    }
+
+    #[test]
+    fn query_counts_for_weights_is_proportional_for_a_dominant_mood() {
+        let counts = query_counts_for_weights(10, &[80, 20]);
+        assert!(counts[0] > counts[1]);
     }
 }

@@ -85,6 +85,7 @@ pub fn run() {
             commands::settings::update_settings,
             commands::session::start_session,
             commands::session::start_mood_session,
+            commands::session::start_mixed_session,
             commands::session::end_session,
             commands::session::get_current_session,
             commands::session::list_history,
