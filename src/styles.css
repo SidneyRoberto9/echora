@@ -197,6 +197,26 @@ a:hover {
   color: var(--text-secondary);
 }
 
+.mix-toggle {
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 12px;
+  align-self: flex-start;
+}
+.mix-toggle.is-active {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+.mix-toggle:disabled {
+  opacity: 0.5;
+}
+
 .mood-row {
   flex: 0 0 auto;
 }

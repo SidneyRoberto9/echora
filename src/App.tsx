@@ -138,6 +138,7 @@ function App() {
             onError={reportError}
             startingMoodId={startingMoodId}
             onStartMood={handleStartMood}
+            onStartMix={handleStartMix}
             onSurpriseMe={handleSurpriseMe}
           />
         ) : null}
