@@ -1,4 +1,6 @@
-use std::sync::Mutex;
+use std::path::PathBuf;
+use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, Mutex};
 
 use crate::db::Db;
 use crate::media;
@@ -28,4 +30,17 @@ pub struct AppState {
     /// in memory for the current playback session (see ADR 0009) —
     /// populated/cleared by `media::sponsorblock::watch`.
     pub sponsorblock_segments: Mutex<Vec<media::sponsorblock::Segment>>,
+    /// The resolved app data directory — stored here so commands (e.g.
+    /// crash reporting) can reach it without threading an `AppHandle`
+    /// through every call.
+    // ponytail: unread until Task 3/4 wire the consuming commands — same
+    // stopgap Task 1 used in crash.rs, drop once those land.
+    #[allow(dead_code)]
+    pub app_dir: PathBuf,
+    /// Mirrors `Settings.crash_report_enabled`, kept in sync by
+    /// `update_settings`. An `Arc` because the panic hook and the mpv
+    /// `Player` each need their own clone to check it without touching
+    /// `AppState` (the panic hook in particular must not lock anything).
+    #[allow(dead_code)]
+    pub crash_reporting_enabled: Arc<AtomicBool>,
 }
