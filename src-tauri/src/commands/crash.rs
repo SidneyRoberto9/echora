@@ -113,6 +113,7 @@ mod tests {
         let dir = unique_temp_dir();
         let state = test_state(dir.clone(), true);
         report_frontend_crash_impl(&state, "one".into(), None);
+        std::thread::sleep(std::time::Duration::from_millis(2));
         report_frontend_crash_impl(&state, "two".into(), None);
 
         let listed = crash::list(&state.app_dir).unwrap();

@@ -119,21 +119,8 @@ fn kind_slug(kind: &CrashKind) -> &'static str {
 pub fn record(app_dir: &Path, event: CrashRecord) -> std::io::Result<()> {
     let dir = crashes_dir(app_dir);
     fs::create_dir_all(&dir)?;
-    let mut filename = format!("{}-{}.json", event.timestamp, kind_slug(&event.kind));
-    let mut path = dir.join(&filename);
-    let mut counter = 1;
-    // ponytail: linear probe for collision; upgrade to UUID suffix if collisions become common
-    while path.exists() {
-        filename = format!(
-            "{}-{}-{}.json",
-            event.timestamp,
-            kind_slug(&event.kind),
-            counter
-        );
-        path = dir.join(&filename);
-        counter += 1;
-    }
-    fs::write(path, serde_json::to_vec_pretty(&event)?)?;
+    let filename = format!("{}-{}.json", event.timestamp, kind_slug(&event.kind));
+    fs::write(dir.join(filename), serde_json::to_vec_pretty(&event)?)?;
     enforce_retention(&dir)
 }
 
@@ -181,26 +168,7 @@ pub fn list(app_dir: &Path) -> std::io::Result<Vec<CrashSummary>> {
 
 #[allow(dead_code)]
 fn read_one(app_dir: &Path, id: &str) -> Result<CrashRecord> {
-    let dir = crashes_dir(app_dir);
-    let mut path = dir.join(format!("{id}.json"));
-    // ponytail: if the base name doesn't exist, try collision-suffixed versions
-    if !path.exists() {
-        let mut counter = 1;
-        loop {
-            path = dir.join(format!("{id}-{counter}.json"));
-            if !path.exists() {
-                // Fallback to original path for error reporting
-                path = dir.join(format!("{id}.json"));
-                break;
-            }
-            counter += 1;
-            if counter > 100 {
-                // Safety limit to prevent infinite loops
-                path = dir.join(format!("{id}.json"));
-                break;
-            }
-        }
-    }
+    let path = crashes_dir(app_dir).join(format!("{id}.json"));
     let bytes = fs::read(path).map_err(EchoraError::Io)?;
     Ok(serde_json::from_slice(&bytes)?)
 }
