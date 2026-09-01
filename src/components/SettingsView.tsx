@@ -76,6 +76,21 @@ export function SettingsView({ onError }: SettingsViewProps) {
             />
           </div>
         ))}
+        <p className="settings-section__hint">
+          Segment data from{" "}
+          <a href="https://sponsor.ajay.app" target="_blank" rel="noreferrer">
+            SponsorBlock
+          </a>{" "}
+          (
+          <a
+            href="https://creativecommons.org/licenses/by-nc-sa/4.0/"
+            target="_blank"
+            rel="noreferrer"
+          >
+            CC BY-NC-SA 4.0
+          </a>
+          ).
+        </p>
 
         <h2 className="settings-section__title">Startup</h2>
         <div className="settings-row">

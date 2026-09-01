@@ -147,6 +147,7 @@ mod tests {
                 PathBuf::from("/tmp/echora-test-unused.sock"),
             )),
             mpris: None,
+            sponsorblock_segments: Mutex::new(Vec::new()),
         }
     }
 

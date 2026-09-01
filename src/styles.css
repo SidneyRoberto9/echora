@@ -683,6 +683,12 @@ a:hover {
   max-width: 280px;
 }
 
+.settings-section__hint {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 4px 0 0 0;
+}
+
 .toggle-hit {
   display: inline-flex;
   align-items: center;
