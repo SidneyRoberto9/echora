@@ -32,10 +32,13 @@ maintainer explicitly requests a change.
 
 ## V1 scope
 
-**In:** auto-update, free-text search, Scenes, Mood Mixing, Intensity,
-Discover, Statistics, SponsorBlock, autostart on system startup.
+**In:** auto-update, Scenes, Mood Mixing, Intensity, Discover, Statistics,
+SponsorBlock, autostart on system startup.
 
-**Out:** download/offline mode, Smart Search (removed from scope).
+**Out:** download/offline mode, Smart Search (removed from scope),
+free-text search UI (removed from scope — mood-driven search remains the
+only discovery path; the resolver's `search()` still powers mood
+candidate generation internally).
 
 Being "in v1" doesn't mean built first — the internal build order
 follows the phases in the main project brief: the core mood → search →

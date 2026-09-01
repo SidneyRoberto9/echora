@@ -113,7 +113,6 @@ pub fn run() {
             commands::library::list_favorite_tracks,
             commands::library::set_track_feedback,
             commands::library::get_track_feedback,
-            commands::search::search_tracks,
             commands::playback::pause_playback,
             commands::playback::resume_playback,
             commands::playback::seek_playback,

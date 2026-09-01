@@ -157,8 +157,6 @@ export const api = {
     call<void>("rename_scene", { sceneId, name }),
   deleteScene: (sceneId: number) => call<void>("delete_scene", { sceneId }),
 
-  searchTracks: (query: string, limit: number) => call<Track[]>("search_tracks", { query, limit }),
-
   pausePlayback: () => call<void>("pause_playback"),
   resumePlayback: () => call<void>("resume_playback"),
   seekPlayback: (seconds: number) => call<void>("seek_playback", { seconds }),
