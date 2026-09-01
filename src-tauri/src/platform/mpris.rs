@@ -91,7 +91,7 @@ pub async fn notify(state: &AppState) {
 }
 
 async fn playback_status_for(state: &AppState) -> PlaybackStatus {
-    let player = state.player.lock().await;
+    let mut player = state.player.lock().await;
     if !player.is_started() {
         return PlaybackStatus::Stopped;
     }
@@ -253,7 +253,7 @@ impl PlayerInterface for MprisHandler {
         let app = self.app.clone();
         tauri::async_runtime::spawn(async move {
             let state = app.state::<AppState>();
-            let player = state.player.lock().await;
+            let mut player = state.player.lock().await;
             let current = player
                 .position_seconds()
                 .await
@@ -333,7 +333,7 @@ impl PlayerInterface for MprisHandler {
 
     async fn volume(&self) -> fdo::Result<Volume> {
         let state = self.app.state::<AppState>();
-        let player = state.player.lock().await;
+        let mut player = state.player.lock().await;
         if !player.is_started() {
             return Ok(1.0);
         }

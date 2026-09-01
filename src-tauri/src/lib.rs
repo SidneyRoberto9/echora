@@ -1,4 +1,5 @@
 mod commands;
+mod crash;
 mod db;
 mod error;
 mod media;
@@ -53,14 +54,23 @@ pub fn run() {
             .expect("database should open and migrate");
             let moods = moods::MoodCatalog::load().expect("bundled moods.json should load");
 
+            let initial_settings = db.get_settings()?;
+            let crash_reporting_enabled = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(
+                initial_settings.crash_report_enabled,
+            ));
+
             let sidecar_paths = media::sidecar_paths::SidecarPaths::discover_dev();
             let resolver = media::resolver::Resolver::new(media::resolver::ResolverConfig {
                 yt_dlp_path: sidecar_paths.yt_dlp,
                 deno_path: sidecar_paths.deno,
                 timeout: std::time::Duration::from_secs(30),
             });
-            let player =
-                media::player::Player::new(sidecar_paths.mpv, app_dir.join("mpv-ipc.sock"));
+            let player = media::player::Player::new(
+                sidecar_paths.mpv,
+                app_dir.join("mpv-ipc.sock"),
+                app_dir.clone(),
+                crash_reporting_enabled.clone(),
+            );
 
             let mpris =
                 tauri::async_runtime::block_on(platform::mpris::build(app.handle().clone()));
@@ -73,20 +83,22 @@ pub fn run() {
                 player: tokio::sync::Mutex::new(player),
                 mpris,
                 sponsorblock_segments: Mutex::new(Vec::new()),
+                app_dir: app_dir.clone(),
+                crash_reporting_enabled: crash_reporting_enabled.clone(),
             });
 
             platform::tray::setup(app)?;
 
             // Keep the OS-level autostart entry truthful to the saved
             // setting even if it drifted (manually removed, fresh profile).
-            let autostart_enabled = app
-                .state::<AppState>()
-                .db
-                .lock()
-                .unwrap()
-                .get_settings()?
-                .autostart_enabled;
-            platform::autostart::sync(app.handle(), autostart_enabled)?;
+            // Reuses `initial_settings` read above instead of a second
+            // `get_settings()` query.
+            platform::autostart::sync(app.handle(), initial_settings.autostart_enabled)?;
+
+            // Chain onto Rust's default panic hook (keeps stderr output
+            // for `cargo tauri dev`) and additionally persist a crash
+            // record — best-effort, must never itself panic.
+            crash::install_panic_hook(app_dir.clone(), crash_reporting_enabled.clone());
 
             tauri::async_runtime::spawn(media::sponsorblock::watch(app.handle().clone()));
 
@@ -99,6 +111,10 @@ pub fn run() {
             commands::mood::surprise_me,
             commands::settings::get_settings,
             commands::settings::update_settings,
+            commands::crash::list_crash_reports,
+            commands::crash::get_crash_report_markdown,
+            commands::crash::clear_crash_reports,
+            commands::crash::report_frontend_crash,
             commands::session::start_session,
             commands::session::start_mood_session,
             commands::session::start_mixed_session,

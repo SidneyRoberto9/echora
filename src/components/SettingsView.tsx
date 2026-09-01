@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { getVersion } from "@tauri-apps/api/app";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { useSettings } from "../hooks/useSettings";
-import { api } from "../lib/api";
+import { api, type CrashSummary } from "../lib/api";
 
 const CACHE_OPTIONS: { label: string; mb: number }[] = [
   { label: "250MB", mb: 250 },
@@ -18,6 +19,87 @@ const SPONSORBLOCK_CATEGORIES: { key: string; label: string }[] = [
   { key: "intro", label: "Intro" },
   { key: "outro", label: "Outro" },
 ];
+
+const GITHUB_ISSUES_URL = "https://github.com/SidneyRoberto9/echora/issues/new";
+
+function formatRelativeTime(unixMillis: number): string {
+  const diffMinutes = Math.round((Date.now() - unixMillis) / 60000);
+  if (diffMinutes < 1) return "just now";
+  if (diffMinutes < 60) return `${diffMinutes}m ago`;
+  const diffHours = Math.round(diffMinutes / 60);
+  if (diffHours < 24) return `${diffHours}h ago`;
+  return `${Math.round(diffHours / 24)}d ago`;
+}
+
+function CrashReportsList({
+  enabled,
+  onError,
+}: {
+  enabled: boolean;
+  onError: (message: string) => void;
+}) {
+  const [reports, setReports] = useState<CrashSummary[]>([]);
+
+  useEffect(() => {
+    if (!enabled) {
+      return;
+    }
+    api.listCrashReports().then(setReports).catch(() => {});
+  }, [enabled]);
+
+  const handleReport = async (id: string) => {
+    try {
+      const body = await api.getCrashReportMarkdown(id);
+      const url = `${GITHUB_ISSUES_URL}?title=${encodeURIComponent(`Crash report: ${id}`)}&body=${encodeURIComponent(body)}&labels=crash-report`;
+      await openUrl(url);
+    } catch (err) {
+      onError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const handleClearAll = async () => {
+    try {
+      await api.clearCrashReports();
+      api.listCrashReports().then(setReports).catch(() => {});
+    } catch (err) {
+      onError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  if (!enabled) return null;
+
+  return (
+    <div className="crash-reports-list">
+      {reports.length === 0 ? (
+        <p className="settings-section__hint">No crashes recorded.</p>
+      ) : (
+        <>
+          {reports.map((r) => (
+            <div className="settings-row" key={r.id}>
+              <span className="settings-row__label">
+                {r.kind} — {formatRelativeTime(r.timestamp)}
+              </span>
+              <button type="button" className="text-link" onClick={() => handleReport(r.id)}>
+                Report
+              </button>
+            </div>
+          ))}
+          <div className="settings-row">
+            <span className="settings-row__label">Clear all crash reports</span>
+            <button
+              type="button"
+              className="text-link"
+              style={{ color: "var(--danger)" }}
+              onClick={handleClearAll}
+            >
+              Clear all
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 
 interface ToggleProps {
   on: boolean;
@@ -265,6 +347,7 @@ export function SettingsView({ onError }: SettingsViewProps) {
             onChange={() => update({ crash_report_enabled: !settings.crash_report_enabled })}
           />
         </div>
+        <CrashReportsList enabled={settings.crash_report_enabled} onError={onError} />
         <div className="privacy-note">No account · No cloud · No telemetry by default</div>
       </div>
     </div>

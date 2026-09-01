@@ -1,3 +1,4 @@
+pub mod crash;
 pub mod library;
 pub mod mood;
 pub mod playback;
@@ -58,7 +59,7 @@ pub(crate) async fn resolve_and_load(state: &AppState, track: &Track) -> Result<
 /// decide which way to flip it (MPRIS's own `Play`/`Pause` are directed and
 /// don't need this).
 pub(crate) async fn toggle_play_pause(state: &AppState) -> Result<()> {
-    let player = state.player.lock().await;
+    let mut player = state.player.lock().await;
     let paused = player.is_paused().await?.unwrap_or(false);
     player.set_paused(!paused).await?;
     drop(player);

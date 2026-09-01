@@ -1,5 +1,7 @@
 use std::path::PathBuf;
 use std::process::Stdio;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use serde_json::{Value, json};
@@ -7,6 +9,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
 use tokio::process::{Child, Command};
 
+use crate::crash;
 use crate::error::{EchoraError, Result};
 
 /// Wraps the mpv sidecar: spawned as a subprocess (never linked — see
@@ -18,14 +21,23 @@ pub struct Player {
     mpv_path: PathBuf,
     socket_path: PathBuf,
     child: Option<Child>,
+    app_dir: PathBuf,
+    crash_reporting_enabled: Arc<AtomicBool>,
 }
 
 impl Player {
-    pub fn new(mpv_path: PathBuf, socket_path: PathBuf) -> Self {
+    pub fn new(
+        mpv_path: PathBuf,
+        socket_path: PathBuf,
+        app_dir: PathBuf,
+        crash_reporting_enabled: Arc<AtomicBool>,
+    ) -> Self {
         Player {
             mpv_path,
             socket_path,
             child: None,
+            app_dir,
+            crash_reporting_enabled,
         }
     }
 
@@ -62,10 +74,24 @@ impl Player {
         Err(EchoraError::SidecarTimeout("mpv".into()))
     }
 
-    async fn send_command(&self, command: Value) -> Result<Value> {
-        let stream = UnixStream::connect(&self.socket_path)
-            .await
-            .map_err(EchoraError::Io)?;
+    async fn send_command(&mut self, command: Value) -> Result<Value> {
+        let stream = match UnixStream::connect(&self.socket_path).await {
+            Ok(s) => s,
+            Err(err) => {
+                if self.child.is_some() {
+                    // mpv is supposed to be running but its socket is
+                    // gone — it died outside our own shutdown() path.
+                    if self.crash_reporting_enabled.load(Ordering::Relaxed) {
+                        let _ = crash::record(
+                            &self.app_dir,
+                            crash::CrashRecord::from_sidecar("mpv", &err.to_string()),
+                        );
+                    }
+                    self.child = None; // it's actually gone; stop treating it as started
+                }
+                return Err(EchoraError::Io(err));
+            }
+        };
         let (read_half, mut write_half) = stream.into_split();
 
         let payload = json!({ "command": command });
@@ -91,23 +117,23 @@ impl Player {
         }
     }
 
-    pub async fn load(&self, stream_url: &str) -> Result<()> {
+    pub async fn load(&mut self, stream_url: &str) -> Result<()> {
         self.send_command(json!(["loadfile", stream_url])).await?;
         Ok(())
     }
 
-    pub async fn set_paused(&self, paused: bool) -> Result<()> {
+    pub async fn set_paused(&mut self, paused: bool) -> Result<()> {
         self.send_command(json!(["set_property", "pause", paused]))
             .await?;
         Ok(())
     }
 
-    pub async fn is_paused(&self) -> Result<Option<bool>> {
+    pub async fn is_paused(&mut self) -> Result<Option<bool>> {
         let reply = self.send_command(json!(["get_property", "pause"])).await?;
         Ok(reply.get("data").and_then(Value::as_bool))
     }
 
-    pub async fn set_volume(&self, volume_percent: u8) -> Result<()> {
+    pub async fn set_volume(&mut self, volume_percent: u8) -> Result<()> {
         self.send_command(json!(["set_property", "volume", volume_percent]))
             .await?;
         Ok(())
@@ -115,25 +141,25 @@ impl Player {
 
     /// mpv's own volume percentage (0-100+), for callers that need to read
     /// it back rather than only set it — e.g. MPRIS's `Volume` property.
-    pub async fn volume_percent(&self) -> Result<Option<u8>> {
+    pub async fn volume_percent(&mut self) -> Result<Option<u8>> {
         let reply = self.send_command(json!(["get_property", "volume"])).await?;
         Ok(reply.get("data").and_then(Value::as_f64).map(|v| v as u8))
     }
 
-    pub async fn seek_to(&self, seconds: f64) -> Result<()> {
+    pub async fn seek_to(&mut self, seconds: f64) -> Result<()> {
         self.send_command(json!(["seek", seconds, "absolute"]))
             .await?;
         Ok(())
     }
 
-    pub async fn position_seconds(&self) -> Result<Option<f64>> {
+    pub async fn position_seconds(&mut self) -> Result<Option<f64>> {
         let reply = self
             .send_command(json!(["get_property", "time-pos"]))
             .await?;
         Ok(reply.get("data").and_then(Value::as_f64))
     }
 
-    pub async fn duration_seconds(&self) -> Result<Option<f64>> {
+    pub async fn duration_seconds(&mut self) -> Result<Option<f64>> {
         let reply = self
             .send_command(json!(["get_property", "duration"]))
             .await?;
@@ -168,7 +194,12 @@ mod smoke_tests {
     #[ignore]
     async fn starting_and_shutting_down_leaves_no_process_or_socket() {
         let socket_path = dev_socket_path();
-        let mut player = Player::new(PathBuf::from("mpv"), socket_path.clone());
+        let mut player = Player::new(
+            PathBuf::from("mpv"),
+            socket_path.clone(),
+            std::env::temp_dir(),
+            std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        );
         player.start().await.unwrap();
         assert!(socket_path.exists());
 
@@ -200,7 +231,12 @@ mod smoke_tests {
         let tracks = resolver.search("villain arc playlist", 1).await.unwrap();
         let resolved = resolver.resolve_with_retry(&tracks[0].id).await.unwrap();
 
-        let mut player = Player::new(PathBuf::from("mpv"), dev_socket_path());
+        let mut player = Player::new(
+            PathBuf::from("mpv"),
+            dev_socket_path(),
+            std::env::temp_dir(),
+            std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        );
         player.start().await.unwrap();
         player.set_volume(10).await.unwrap();
         player.load(&resolved.stream_url).await.unwrap();
@@ -217,5 +253,45 @@ mod smoke_tests {
         );
 
         player.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn mpv_dying_unexpectedly_is_recorded_as_a_sidecar_crash() {
+        // Fully-qualified `Arc`/`AtomicBool`/`Duration` here rather than
+        // relying on `use super::*` to have brought them in — matches
+        // this file's existing `StdDuration` alias in the test above,
+        // which does the same for the same reason.
+        let socket_path = dev_socket_path();
+        let app_dir =
+            std::env::temp_dir().join(format!("echora-crash-smoke-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&app_dir);
+        let enabled = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let mut player = Player::new(
+            PathBuf::from("mpv"),
+            socket_path.clone(),
+            app_dir.clone(),
+            enabled,
+        );
+        player.start().await.unwrap();
+
+        // Kill mpv out-of-band — not through shutdown() — to simulate a
+        // real unexpected sidecar death.
+        let pid = player.child.as_ref().unwrap().id().unwrap();
+        let _ = std::process::Command::new("kill")
+            .arg("-9")
+            .arg(pid.to_string())
+            .status();
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+
+        let err = player.set_volume(50).await.unwrap_err();
+
+        assert!(matches!(err, crate::error::EchoraError::Io(_)));
+        let summaries = crate::crash::list(&app_dir).unwrap();
+        assert_eq!(summaries.len(), 1);
+        assert!(matches!(
+            summaries[0].kind,
+            crate::crash::CrashKind::SidecarCrash
+        ));
     }
 }
