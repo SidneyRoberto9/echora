@@ -32,18 +32,21 @@ maintainer explicitly requests a change.
 
 ## V1 scope
 
-**In:** auto-update, Scenes, Mood Mixing, Intensity, Discover, Statistics,
+**In:** auto-update, Scenes, Mood Mixing, Discover, Statistics,
 SponsorBlock, autostart on system startup.
 
 **Out:** download/offline mode, Smart Search (removed from scope),
 free-text search UI (removed from scope — mood-driven search remains the
 only discovery path; the resolver's `search()` still powers mood
-candidate generation internally).
+candidate generation internally), Intensity (removed from scope — never
+had a concrete design; `MoodTraits` on each catalog mood — energy,
+darkness, romance, sadness, aggression, focus — remain unused data, not
+wired to any scoring or query-selection behavior).
 
 Being "in v1" doesn't mean built first — the internal build order
 follows the phases in the main project brief: the core mood → search →
 resolve → queue → playback → background-controls → history loop lands
-first; Scenes, Mood Mixing, Intensity, Discover, Statistics,
+first; Scenes, Mood Mixing, Discover, Statistics,
 SponsorBlock, and autostart layer on afterward, once the core is
 validated.
 
