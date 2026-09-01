@@ -104,7 +104,7 @@ function UpdatesSection({ onError }: { onError: (message: string) => void }) {
         <div className="settings-row">
           <span>
             <div className="settings-row__label">Version {version}</div>
-            <div className="settings-row__hint">
+            <div className="settings-row__hint" aria-live="polite">
               {status === "up-to-date" ? "You're on the latest version" : null}
               {status === "available" && availableVersion ? `Version ${availableVersion} is available` : null}
               {status === "downloading" ? "Downloading…" : null}
