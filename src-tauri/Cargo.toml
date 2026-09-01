@@ -29,6 +29,6 @@ tokio = { version = "~1.47", features = ["process", "net", "io-util", "time", "m
 rand = "0.10.2"
 mpris-server = { version = "0.10.0", features = ["tokio"] }
 tauri-plugin-autostart = "2.5.1"
-attohttpc = { version = "0.31.0", default-features = false, features = ["tls-rustls-native-roots-ring"] }
+attohttpc = { version = "0.31.0", default-features = false, features = ["tls-rustls-native-roots"] }
 sha2 = "0.11.0"
 
