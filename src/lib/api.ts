@@ -165,6 +165,13 @@ export const api = {
   onTrackAutoAdvanced: (callback: () => void) =>
     listen("track-auto-advanced", () => callback()),
 
+  /** Fires ~12x/sec with the current track's normalized audio level
+   * (0..1) while the player screen can actually show it — Rust already
+   * gates this off when paused, minimized, or unfocused, so the frontend
+   * doesn't need its own visibility checks before subscribing. */
+  onAudioLevel: (callback: (level: number) => void) =>
+    listen<number>("audio-level", (event) => callback(event.payload)),
+
   favoriteTrack: (track: Track) => call<void>("favorite_track", { track }),
   unfavoriteTrack: (trackId: string) => call<void>("unfavorite_track", { trackId }),
   isTrackFavorited: (trackId: string) => call<boolean>("is_track_favorited", { trackId }),
