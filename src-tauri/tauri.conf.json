@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "echora",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "identifier": "com.sidneyroberto9.echora",
   "build": {
     "beforeDevCommand": "npm run dev",
