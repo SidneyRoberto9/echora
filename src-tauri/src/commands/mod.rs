@@ -8,6 +8,7 @@ pub mod settings;
 
 use rand::SeedableRng;
 use rand::rngs::StdRng;
+use tauri::Manager;
 
 use crate::error::Result;
 use crate::models::{Mood, SessionInfo, Track};
@@ -57,7 +58,10 @@ pub(crate) async fn resolve_and_load(
     state: &AppState,
     track: &Track,
 ) -> Result<()> {
-    let resolved = state.resolver.resolve_with_retry(app, &track.id).await?;
+    let resolved = match state.prefetch.take_matching(&track.id).await {
+        Some(result) => result?,
+        None => state.resolver.resolve_with_retry(app, &track.id).await?,
+    };
     let mut player = state.player.lock().await;
     if !player.is_started() {
         player.start(app).await?;
@@ -69,6 +73,21 @@ pub(crate) async fn resolve_and_load(
     player.load(&resolved.stream_url).await?;
     drop(player);
     crate::platform::mpris::notify(state).await;
+
+    // Best-effort: resolve whatever's now next in the background, so it's
+    // ready by the time the user actually gets there instead of paying the
+    // yt-dlp/Deno round trip on the critical path again.
+    let next = state.queue.lock().unwrap().upcoming().first().cloned();
+    if let Some(next) = next {
+        let app = app.clone();
+        let next_id = next.id.clone();
+        let handle = tokio::spawn(async move {
+            let state = app.state::<AppState>();
+            state.resolver.resolve_with_retry(&app, &next_id).await
+        });
+        state.prefetch.spawn(next.id, handle).await;
+    }
+
     Ok(())
 }
 

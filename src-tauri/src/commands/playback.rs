@@ -67,6 +67,7 @@ mod tests {
                 deno_path: PathBuf::from("deno"),
                 timeout: Duration::from_secs(30),
             }),
+            prefetch: crate::media::prefetch::Prefetch::new(),
             player: tokio::sync::Mutex::new(Player::new(
                 PathBuf::from("/tmp/echora-test-playback-unused.sock"),
                 std::env::temp_dir(),

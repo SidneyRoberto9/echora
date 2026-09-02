@@ -78,6 +78,7 @@ pub fn run() {
                 queue: Mutex::new(queue::Queue::new()),
                 moods,
                 resolver,
+                prefetch: media::prefetch::Prefetch::new(),
                 player: tokio::sync::Mutex::new(player),
                 mpris,
                 sponsorblock_segments: Mutex::new(Vec::new()),
