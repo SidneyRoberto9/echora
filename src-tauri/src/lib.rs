@@ -106,6 +106,8 @@ pub fn run() {
             crash::install_panic_hook(app_dir.clone(), crash_reporting_enabled.clone());
 
             tauri::async_runtime::spawn(media::sponsorblock::watch(app.handle().clone()));
+            tauri::async_runtime::spawn(media::auto_advance::watch(app.handle().clone()));
+            tauri::async_runtime::spawn(media::audio_level::watch(app.handle().clone()));
 
             Ok(())
         })

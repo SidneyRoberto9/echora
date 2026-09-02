@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Playback } from "../hooks/usePlayback";
 import { useTrackFeedback } from "../hooks/useTrackFeedback";
 import {
@@ -47,6 +47,7 @@ export function PlayerView({
   const track = queue.current;
   const { liked, like, dislike } = useTrackFeedback(track);
   const [showSaveModal, setShowSaveModal] = useState(false);
+  const orbWrapRef = useRef<HTMLDivElement | null>(null);
 
   const handleSave = async (name: string) => {
     try {
@@ -59,10 +60,23 @@ export function PlayerView({
     }
   };
 
+  useEffect(() => {
+    let smoothed = 0;
+    const unlisten = api.onAudioLevel((level) => {
+      // Exponential moving average so the visual doesn't jump frame to
+      // frame — 0.25 is a starting point, tune during manual testing.
+      smoothed = smoothed + (level - smoothed) * 0.25;
+      orbWrapRef.current?.style.setProperty("--orb-level", smoothed.toFixed(3));
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [track?.id]);
+
   return (
     <div className="player-view">
       <div className="player-view__glow" aria-hidden="true" />
-      <div className="player-view__topbar">
+      <div className="player-view__topbar" data-tauri-drag-region>
         <button type="button" className="icon-btn" aria-label="Back" onClick={onCollapse}>
           <BackIcon />
         </button>
@@ -98,7 +112,7 @@ export function PlayerView({
         />
       ) : (
         <div className="player-view__content">
-          <div className="orb-wrap">
+          <div className="orb-wrap" ref={orbWrapRef}>
             <div className="orb-ring" aria-hidden="true" />
             <div className="orb" aria-hidden="true" />
           </div>

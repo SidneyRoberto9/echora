@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 
 export interface Track {
   id: string;
@@ -156,6 +157,20 @@ export const api = {
   queueSkipTo: (index: number) => call<Track>("queue_skip_to", { index }),
   queueRemove: (index: number) => call<void>("queue_remove", { index }),
   ensureQueueToppedUp: () => call<void>("ensure_queue_topped_up"),
+  /** Fires when a track finishes playing on its own and Rust advances the
+   * queue for it — the one queue transition nothing on the frontend
+   * already polls for (unlike a manual next/previous/skip-to, which the
+   * caller already knows to `refreshQueue()` after). Mirrors Rust's
+   * `commands::queue::TRACK_AUTO_ADVANCED_EVENT`. */
+  onTrackAutoAdvanced: (callback: () => void) =>
+    listen("track-auto-advanced", () => callback()),
+
+  /** Fires ~12x/sec with the current track's normalized audio level
+   * (0..1) while the player screen can actually show it — Rust already
+   * gates this off when paused, minimized, or unfocused, so the frontend
+   * doesn't need its own visibility checks before subscribing. */
+  onAudioLevel: (callback: (level: number) => void) =>
+    listen<number>("audio-level", (event) => callback(event.payload)),
 
   favoriteTrack: (track: Track) => call<void>("favorite_track", { track }),
   unfavoriteTrack: (trackId: string) => call<void>("unfavorite_track", { trackId }),

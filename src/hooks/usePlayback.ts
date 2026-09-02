@@ -17,6 +17,12 @@ function messageOf(err: unknown): string {
  * `media::player`'s Fase 3 note on `observe_property`), so a modest poll
  * is the pragmatic stand-in — not the aggressive polling the project
  * brief warns against, and it stops entirely while paused or idle.
+ *
+ * The one exception is a track finishing on its own: nothing here polls
+ * the queue itself, so without a push from Rust the mini-player would
+ * keep showing the just-finished track indefinitely (not just "for up to
+ * a second") until some other user action happened to call
+ * `refreshQueue()`. `api.onTrackAutoAdvanced` covers that one gap.
  */
 export function usePlayback() {
   const [queue, setQueue] = useState<QueueView>(EMPTY_QUEUE);
@@ -57,6 +63,32 @@ export function usePlayback() {
       cancelled = true;
     };
   }, []);
+
+  // Rust pushes this the moment it auto-advances the queue for a track
+  // that finished on its own -- resets local playback state and refetches
+  // the queue exactly like a manual `next()` does, since from the
+  // frontend's point of view it's the same transition, just not
+  // user-triggered.
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+    (async () => {
+      const stop = await api.onTrackAutoAdvanced(() => {
+        setIsPaused(false);
+        setPosition(0);
+        void refreshQueue();
+      });
+      if (cancelled) {
+        stop();
+      } else {
+        unlisten = stop;
+      }
+    })();
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [refreshQueue]);
 
   // Seeds the volume slider from the last saved value -- runs once, same
   // reasoning as the queue's own initial-fetch effect above.
