@@ -1,3 +1,4 @@
+pub mod audio_level;
 pub mod auto_advance;
 pub mod metadata;
 pub mod player;
