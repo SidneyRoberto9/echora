@@ -51,6 +51,11 @@ pub async fn watch(app: AppHandle) {
         let is_visible = window.is_visible().unwrap_or(false);
         let is_minimized = window.is_minimized().unwrap_or(false);
         let is_focused = window.is_focused().unwrap_or(false);
+        if !is_visible || is_minimized || !is_focused {
+            // Cheap, local, no-IPC gate: skip the mpv round-trip entirely
+            // (not just the emit) whenever the window can't be seen.
+            continue;
+        }
 
         let state = app.state::<AppState>();
         let has_current_track = state.queue.lock().unwrap().current().is_some();
