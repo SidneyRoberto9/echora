@@ -75,7 +75,6 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'Echora ${{ github.ref_name }}'
-          # TEMP for CI validation test tag — revert to false/false before any real release tag.
-          releaseDraft: true
-          prerelease: true
+          releaseDraft: false
+          prerelease: false
           uploadUpdaterJson: true
