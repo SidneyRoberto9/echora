@@ -11,6 +11,7 @@ import {
   QueueIcon,
   SaveIcon,
   ThumbsDownIcon,
+  VolumeIcon,
 } from "./icons";
 import { EmptyState } from "./EmptyState";
 import { NameModal } from "./NameModal";
@@ -41,7 +42,8 @@ export function PlayerView({
   onError,
   onSceneSaved,
 }: PlayerViewProps) {
-  const { queue, isPaused, position, duration, playPause, next, previous, seek } = playback;
+  const { queue, isPaused, position, duration, volume, setVolume, playPause, next, previous, seek } =
+    playback;
   const track = queue.current;
   const { liked, like, dislike } = useTrackFeedback(track);
   const [showSaveModal, setShowSaveModal] = useState(false);
@@ -181,6 +183,19 @@ export function PlayerView({
             >
               <HeartIcon filled={liked === true} />
             </button>
+          </div>
+
+          <div className="player-view__volume">
+            <VolumeIcon size={16} />
+            <input
+              type="range"
+              min={0}
+              max={100}
+              value={volume}
+              onChange={(e) => setVolume(Number(e.target.value))}
+              aria-label="Volume"
+              className="player-view__volume-slider"
+            />
           </div>
         </div>
       )}

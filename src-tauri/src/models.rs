@@ -152,6 +152,7 @@ pub struct Settings {
     pub crash_report_enabled: bool,
     pub autostart_enabled: bool,
     pub sponsorblock_categories: Vec<String>,
+    pub volume: u8,
 }
 
 impl Default for Settings {
@@ -162,6 +163,7 @@ impl Default for Settings {
             crash_report_enabled: false,
             autostart_enabled: false,
             sponsorblock_categories: vec!["sponsor".into(), "selfpromo".into(), "intro".into()],
+            volume: 100,
         }
     }
 }

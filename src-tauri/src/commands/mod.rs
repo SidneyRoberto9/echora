@@ -61,6 +61,10 @@ pub(crate) async fn resolve_and_load(
     let mut player = state.player.lock().await;
     if !player.is_started() {
         player.start(app).await?;
+        // A freshly-spawned mpv always starts at its own default volume --
+        // apply whatever the user last set before this one existed.
+        let saved_volume = state.db.lock().unwrap().get_settings()?.volume;
+        player.set_volume(saved_volume).await?;
     }
     player.load(&resolved.stream_url).await?;
     drop(player);

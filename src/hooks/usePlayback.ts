@@ -24,6 +24,7 @@ export function usePlayback() {
   const [isPaused, setIsPaused] = useState(false);
   const [position, setPosition] = useState<number | null>(null);
   const [duration, setDuration] = useState<number | null>(null);
+  const [volume, setVolumeState] = useState(100);
   const [error, setError] = useState<string | null>(null);
 
   const refreshQueue = useCallback(async () => {
@@ -50,6 +51,24 @@ export function usePlayback() {
         if (!cancelled) setError(messageOf(err));
       } finally {
         if (!cancelled) setQueueLoaded(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Seeds the volume slider from the last saved value -- runs once, same
+  // reasoning as the queue's own initial-fetch effect above.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const settings = await api.getSettings();
+        if (!cancelled) setVolumeState(settings.volume);
+      } catch {
+        // Falls back to the 100 default already in state -- not worth
+        // surfacing as a playback error.
       }
     })();
     return () => {
@@ -159,6 +178,15 @@ export function usePlayback() {
     }
   }, []);
 
+  const setVolume = useCallback(async (percent: number) => {
+    setVolumeState(percent);
+    try {
+      await api.setPlaybackVolume(percent);
+    } catch (err) {
+      setError(messageOf(err));
+    }
+  }, []);
+
   return {
     queue,
     queueLoaded,
@@ -166,6 +194,8 @@ export function usePlayback() {
     setIsPaused,
     position,
     duration,
+    volume,
+    setVolume,
     error,
     dismissError: () => setError(null),
     refreshQueue,
