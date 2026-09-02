@@ -24,7 +24,6 @@ meson setup build \
   -Dx11=disabled \
   -Dwayland=disabled \
   -Dcocoa=disabled \
-  -Dwin32-desktop=disabled \
   -Dalsa=enabled \
   -Dpulse=enabled \
   -Dlibmpv=false \
