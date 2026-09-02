@@ -52,6 +52,7 @@ impl Player {
 
     pub async fn start<R: tauri::Runtime>(&mut self, app: &tauri::AppHandle<R>) -> Result<()> {
         let _ = std::fs::remove_file(&self.socket_path);
+        self.level_metering_ready = false;
 
         let (_rx, child) = app
             .shell()
@@ -444,6 +445,58 @@ mod smoke_tests {
         let level = player.audio_level_db().await.unwrap();
         assert!(level.is_some());
         assert!(level.unwrap().is_finite());
+
+        player.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn level_metering_flag_resets_on_process_restart() {
+        let socket_path = dev_socket_path();
+        let app = test_app_handle();
+        let mut player = Player::new(
+            socket_path.clone(),
+            std::env::temp_dir(),
+            std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        );
+
+        // First start: enable metering
+        player.start(&app).await.unwrap();
+        player
+            .load("av://lavfi:sine=frequency=440:duration=5")
+            .await
+            .unwrap();
+        player.enable_level_metering().await.unwrap();
+        assert!(player.level_metering_ready);
+
+        // Simulate crash by killing the process
+        let pid = player.child.as_ref().unwrap().pid();
+        let _ = std::process::Command::new("kill")
+            .arg("-9")
+            .arg(pid.to_string())
+            .status();
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+
+        // Trigger error to clear child state
+        let _ = player.set_volume(50).await;
+
+        // Restart: flag should be reset to false
+        player.start(&app).await.unwrap();
+        assert!(
+            !player.level_metering_ready,
+            "level_metering_ready must reset on start()"
+        );
+
+        // Load and re-enable metering on the new process
+        player
+            .load("av://lavfi:sine=frequency=440:duration=5")
+            .await
+            .unwrap();
+        player.enable_level_metering().await.unwrap();
+        assert!(
+            player.level_metering_ready,
+            "enable_level_metering must work on new process"
+        );
 
         player.shutdown().await.unwrap();
     }
