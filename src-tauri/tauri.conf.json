@@ -39,7 +39,9 @@
     "createUpdaterArtifacts": true,
     "linux": {
       "deb": {
-        "depends": ["libasound2", "libpulse0"]
+        "depends": ["libasound2", "libpulse0"],
+        "postInstallScript": "../scripts/deb-postinst.sh",
+        "postRemoveScript": "../scripts/deb-postrm.sh"
       }
     },
     "icon": [
