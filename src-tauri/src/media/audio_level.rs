@@ -4,15 +4,30 @@
 //! show: a track playing, with the window visible and focused. Mirrors
 //! `media::auto_advance::watch`'s shape (a `tokio::time::interval` loop
 //! spawned once at startup) and its pattern of factoring the per-tick
-//! decision into a pure, directly-testable function.
+//! decision into pure, directly-testable functions.
+//!
+//! Runs at two speeds: `ACTIVE_POLL_INTERVAL` (~12.5Hz) while the gate is
+//! open and a level is actually being read, and the much slower
+//! `IDLE_POLL_INTERVAL` otherwise — so a hidden/minimized/unfocused/paused
+//! player isn't making blocking `is_visible`/`is_minimized`/`is_focused`
+//! round-trips to the GTK main thread dozens of times a second forever.
+//! `tokio::time::Interval`'s period is fixed at construction (no public
+//! setter), so this uses two separate `Interval`s rather than
+//! reconfiguring one.
 
 use std::time::Duration;
 
 use tauri::{AppHandle, Emitter, Manager};
+use tokio::time::MissedTickBehavior;
 
 use crate::state::AppState;
 
-const POLL_INTERVAL: Duration = Duration::from_millis(80); // ~12.5Hz
+/// Tick rate while actively metering (gate open).
+const ACTIVE_POLL_INTERVAL: Duration = Duration::from_millis(80); // ~12.5Hz
+/// Tick rate while idle (gate closed) — just fast enough to notice
+/// playback resuming or the window becoming visible/focused again without
+/// polling the GTK main thread at the active rate for no reason.
+const IDLE_POLL_INTERVAL: Duration = Duration::from_millis(500); // ~2Hz
 
 /// Below this, a reading is treated as silence (maps to `0.0`); at or
 /// above `0.0` dBFS maps to `1.0`. -60dBFS is a common "quiet but not
@@ -21,11 +36,19 @@ const POLL_INTERVAL: Duration = Duration::from_millis(80); // ~12.5Hz
 /// real tracks.
 const NOISE_FLOOR_DB: f64 = -60.0;
 
-/// Whether the watch loop should be attempting to read a level *this
-/// tick* — pulled out of `watch()` so it's testable without mpv or a real
-/// Tauri window.
+/// Whether the window is in a state where the orb can actually be seen —
+/// the cheap, no-IPC half of the metering gate, checked before ever
+/// locking the player or talking to mpv.
+fn window_can_show(is_visible: bool, is_minimized: bool, is_focused: bool) -> bool {
+    is_visible && !is_minimized && is_focused
+}
+
+/// Full metering gate: a track actually playing, on top of the window
+/// being able to show it. Composes `window_can_show` rather than
+/// re-deriving the same condition, so there's exactly one tested place
+/// that decides the window half of the gate.
 fn should_meter(is_playing: bool, is_visible: bool, is_minimized: bool, is_focused: bool) -> bool {
-    is_playing && is_visible && !is_minimized && is_focused
+    is_playing && window_can_show(is_visible, is_minimized, is_focused)
 }
 
 /// Maps an RMS dBFS reading (or `None`, meaning no data this tick) to the
@@ -38,12 +61,24 @@ fn normalize_level(db: Option<f64>) -> f32 {
 
 /// Runs forever. Once per tick: reads the current window/playback state,
 /// decides via `should_meter` whether to bother, and if so, makes sure
-/// metering is enabled and emits the latest normalized level.
+/// metering is enabled and emits the latest normalized level. The first
+/// tick where the gate has just closed (after having been open) emits one
+/// final `0.0` so the frontend's `--orb-level` resets instead of freezing
+/// at its last value.
 pub async fn watch(app: AppHandle) {
-    let mut interval = tokio::time::interval(POLL_INTERVAL);
+    let mut active_interval = tokio::time::interval(ACTIVE_POLL_INTERVAL);
+    active_interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
+    let mut idle_interval = tokio::time::interval(IDLE_POLL_INTERVAL);
+    idle_interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
+
+    let mut was_metering = false;
 
     loop {
-        interval.tick().await;
+        if was_metering {
+            active_interval.tick().await;
+        } else {
+            idle_interval.tick().await;
+        }
 
         let Some(window) = app.get_webview_window("main") else {
             continue;
@@ -51,9 +86,14 @@ pub async fn watch(app: AppHandle) {
         let is_visible = window.is_visible().unwrap_or(false);
         let is_minimized = window.is_minimized().unwrap_or(false);
         let is_focused = window.is_focused().unwrap_or(false);
-        if !is_visible || is_minimized || !is_focused {
+
+        if !window_can_show(is_visible, is_minimized, is_focused) {
             // Cheap, local, no-IPC gate: skip the mpv round-trip entirely
             // (not just the emit) whenever the window can't be seen.
+            if was_metering {
+                was_metering = false;
+                let _ = app.emit("audio-level", 0.0f32);
+            }
             continue;
         }
 
@@ -64,9 +104,15 @@ pub async fn watch(app: AppHandle) {
         let is_playing = has_current_track && matches!(player.is_paused().await, Ok(Some(false)));
 
         if !should_meter(is_playing, is_visible, is_minimized, is_focused) {
+            drop(player);
+            if was_metering {
+                was_metering = false;
+                let _ = app.emit("audio-level", 0.0f32);
+            }
             continue;
         }
 
+        was_metering = true;
         let _ = player.enable_level_metering().await;
         let level_db = player.audio_level_db().await.unwrap_or(None);
         drop(player);
@@ -80,31 +126,36 @@ mod tests {
     use super::*;
 
     #[test]
-    fn meters_only_when_playing_visible_unminimized_and_focused() {
+    fn window_can_show_when_visible_unminimized_and_focused() {
+        assert!(window_can_show(true, false, true));
+    }
+
+    #[test]
+    fn window_can_show_false_when_minimized() {
+        assert!(!window_can_show(true, true, true));
+    }
+
+    #[test]
+    fn window_can_show_false_when_unfocused() {
+        assert!(!window_can_show(true, false, false));
+    }
+
+    #[test]
+    fn window_can_show_false_when_hidden_to_tray() {
+        // "hidden" (REQUIREMENTS_FREEZE: closing minimizes to tray, see
+        // platform::tray) reads as is_visible == false, distinct from the
+        // OS-level "minimized" state.
+        assert!(!window_can_show(false, false, true));
+    }
+
+    #[test]
+    fn should_meter_true_when_playing_and_window_can_show() {
         assert!(should_meter(true, true, false, true));
     }
 
     #[test]
-    fn does_not_meter_when_paused() {
+    fn should_meter_false_when_paused() {
         assert!(!should_meter(false, true, false, true));
-    }
-
-    #[test]
-    fn does_not_meter_when_minimized() {
-        assert!(!should_meter(true, true, true, true));
-    }
-
-    #[test]
-    fn does_not_meter_when_unfocused() {
-        assert!(!should_meter(true, true, false, false));
-    }
-
-    #[test]
-    fn does_not_meter_when_hidden_to_tray() {
-        // "hidden" (REQUIREMENTS_FREEZE: closing minimizes to tray, see
-        // platform::tray) reads as is_visible == false, distinct from the
-        // OS-level "minimized" state.
-        assert!(!should_meter(true, false, false, true));
     }
 
     #[test]

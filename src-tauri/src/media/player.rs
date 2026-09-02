@@ -27,7 +27,6 @@ pub struct Player {
     /// `media::audio_level::watch`), so later calls to
     /// `enable_level_metering` are a cheap no-op instead of re-adding the
     /// filter every track change.
-    #[allow(dead_code)]
     level_metering_ready: bool,
 }
 
@@ -182,7 +181,6 @@ impl Player {
     /// exact filter spec succeeds once a file is loaded, and its metadata
     /// (read via `audio_level_db`) updates continuously afterward without
     /// needing to be re-added.
-    #[allow(dead_code)]
     pub async fn enable_level_metering(&mut self) -> Result<()> {
         if self.level_metering_ready {
             return Ok(());
@@ -210,7 +208,6 @@ impl Player {
     /// object keyed by strings like `"lavfi.astats.Overall.RMS_level"`,
     /// with **string-typed** values (e.g. `"-21.123621"`) — confirmed
     /// against a real mpv process, not assumed from FFmpeg's docs alone.
-    #[allow(dead_code)]
     pub async fn audio_level_db(&mut self) -> Result<Option<f64>> {
         if !self.level_metering_ready {
             return Ok(None);
