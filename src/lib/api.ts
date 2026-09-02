@@ -86,6 +86,7 @@ export interface Settings {
   crash_report_enabled: boolean;
   autostart_enabled: boolean;
   sponsorblock_categories: string[];
+  volume: number;
 }
 
 interface ErrorPayload {
