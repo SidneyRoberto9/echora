@@ -489,6 +489,8 @@ a:hover {
   display: flex;
   align-items: center;
   justify-content: center;
+  transform: scale(calc(1 + var(--orb-level, 0) * 0.08));
+  transition: transform 80ms linear;
 }
 .orb-ring {
   position: absolute;
@@ -496,8 +498,6 @@ a:hover {
   border-radius: 999px;
   border: 1px solid oklch(70% 0.14 300 / 0.5);
   animation: echora-pulse 3.6s ease-in-out infinite;
-  transform: scale(calc(1 + var(--orb-level, 0) * 0.08));
-  transition: transform 80ms linear;
 }
 .orb {
   position: absolute;
@@ -505,8 +505,8 @@ a:hover {
   border-radius: 999px;
   background: radial-gradient(circle at 38% 32%, oklch(72% 0.17 300 / 0.95), oklch(45% 0.14 300 / 0.55) 70%);
   transform: scale(calc(1 + var(--orb-level, 0) * 0.15));
-  opacity: calc(0.85 + var(--orb-level, 0) * 0.15);
-  transition: transform 80ms linear, opacity 80ms linear;
+  filter: brightness(calc(1 + var(--orb-level, 0) * 0.2));
+  transition: transform 80ms linear, filter 80ms linear;
 }
 @keyframes echora-pulse {
   0%,
