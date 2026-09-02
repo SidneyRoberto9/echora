@@ -50,21 +50,71 @@ it ourselves in CI," not this AppImage. Local dev/testing instead used
 the distro's plain `mpv` package, which has none of this problem since
 it's just invoked directly, unmodified, with no wrapper.
 
-## Open item (pre-release, must resolve before the first real tag push)
-`scripts/build-mpv.sh` (Task 4 of `docs/superpowers/plans/2026-09-01-packaging.md`)
-copies mpv's bundled `.so` deps to `$OUT_DIR/lib/` alongside the binary and
-sets rpath `$ORIGIN/lib`, but `src-tauri/tauri.conf.json`'s `bundle` block
-only declares `externalBin` — there is no `resources` entry bundling that
-`lib/` directory into the final `.deb`/AppImage. Caught in this feature's
-final branch review (2026-09-01), not yet fixed: the correct fix needs
-Tauri v2's real `resources`/`externalBin` placement semantics confirmed
-against an actual built package (`externalBin` and `resources` are not
-guaranteed to land in the same output directory, so `$ORIGIN/lib` may not
-resolve as-is) — nothing in this project's environment can run a full
-`cargo tauri build` to settle it (missing `meson`/`ninja`/FFmpeg dev
-headers). **Do not push a real release tag until this is fixed and
-verified against a real built `.deb` and AppImage** — the scratch-tag test
-recommended in Task 6's own report is the right place to catch it.
+## Update (2026-09-01, real build attempt)
+The "nothing in this environment can run a full `cargo tauri build`" gap
+noted below was closed by installing the missing toolchain and actually
+running `scripts/build-mpv.sh` for real. It failed twice before
+succeeding, both times on things no prior review caught because nothing
+had ever actually tried to run it:
+
+1. `-Dwin32-desktop=disabled` in `scripts/build-mpv.sh`'s meson invocation
+   is not a real mpv meson option — confirmed by reading mpv v0.41.0's
+   `meson.options` directly (no `desktop`-named option exists at all, on
+   any platform). Removed; it was a no-op typo, not a Windows/Linux
+   version drift (Echora doesn't target Windows anyway).
+2. mpv's `meson.build` unconditionally requires `libavfilter`,
+   `libswscale`, `libplacebo`, and `libass` at build time (`dependency()`
+   calls with no `required: get_option(...)` gate — see lines 22-32),
+   regardless of `-Dgl=disabled`/`-Dvulkan=disabled`/etc. This project's
+   own `release.yml` prerequisite list only installed `libavcodec-dev`,
+   `libavformat-dev`, `libavutil-dev`, `libswresample-dev` — missing all
+   four unconditional ones. Fixed in `release.yml`.
+
+With both fixed, `scripts/build-mpv.sh x86_64-unknown-linux-gnu` succeeds
+end-to-end: produces a relocatable `mpv-x86_64-unknown-linux-gnu` plus
+`lib/{libavcodec,libavfilter,libavformat,libavutil,libpostproc,
+libswresample,libswscale}.so.*` (7 shared objects, ~34MB).
+
+## Resolved (2026-09-01): mpv `.so` resources bundling
+The previously open pre-release blocker (mpv's `.so` deps had no
+`resources` entry bundling them into the package) was closed by adding a
+`resources` entry to
+`src-tauri/tauri.conf.json`'s `bundle` block (`"binaries/lib/*": "lib/"`)
+and, once real placement was observed, correcting `build-mpv.sh`'s rpath.
+Verified against real, fully built packages (`npx tauri build`), not just
+reasoning about Tauri's docs:
+
+- **Real placement, confirmed empirically** (undocumented by Tauri):
+  `resources` lands at `usr/lib/echora/lib/` in *both* the `.deb` and the
+  AppImage's `AppDir` — identical relative structure in both formats.
+  `externalBin`/the main binary land at `usr/bin/`. So the correct rpath
+  from `usr/bin/mpv` is `$ORIGIN/../lib/echora/lib`, not the originally
+  assumed `$ORIGIN/lib` — fixed in `build-mpv.sh`, using
+  `patchelf --force-rpath` (legacy `DT_RPATH`, not `DT_RUNPATH`) so it
+  wins over `LD_LIBRARY_PATH`.
+- **`.deb`: verified clean.** Extracted the real built `.deb`
+  (`dpkg-deb -x`) and ran `ldd` on the extracted `usr/bin/mpv`: all 7
+  `.so` deps resolve to `usr/lib/echora/lib/*`, not any system path.
+  Ran the extracted binary directly — works.
+- **AppImage: verified working, but with a caveat worth tracking.**
+  `linuxdeploy` (Tauri's AppImage bundler) rewrites `usr/bin/mpv`'s rpath
+  during its own relocation pass — from `$ORIGIN/../lib/echora/lib` to
+  `$ORIGIN/../lib` (its own convention: everything flat under `usr/lib/`,
+  since it also auto-bundles system copies of `libavcodec`/`libavfilter`/
+  etc. for WebKitGTK/GStreamer's own use, which happen to need the same
+  sonames). Right now this is harmless — `md5sum` confirms all 7 `.so`
+  files linuxdeploy auto-bundled are byte-identical to `build-mpv.sh`'s
+  own copies (both are ultimately the same Ubuntu 24.04 apt packages,
+  since neither this project nor GStreamer builds FFmpeg from source),
+  and the AppImage's mpv runs correctly. **This identity is coincidental,
+  not structurally guaranteed** — a future mpv version bump, or the CI
+  runner's base image ever drifting from what GStreamer/WebKitGTK links
+  against, could silently reintroduce a real ABI mismatch inside the
+  AppImage specifically (the `.deb` path is unaffected either way, since
+  `dpkg`-based bundling doesn't rewrite rpaths). Re-verify this specific
+  check (`md5sum` the two copies, or re-run the `ldd`/ownership check
+  used here) whenever mpv's pinned version changes or the CI base image
+  changes — don't assume it still holds.
 
 ## Consequences
 - mpv becomes a build artifact Echora's own CI produces and

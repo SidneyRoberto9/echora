@@ -44,7 +44,8 @@ jobs:
       - name: Install mpv build prerequisites
         run: |
           sudo apt-get install -y meson ninja-build patchelf pkg-config \
-            libavcodec-dev libavformat-dev libavutil-dev libswresample-dev \
+            libavcodec-dev libavfilter-dev libavformat-dev libavutil-dev \
+            libswresample-dev libswscale-dev libplacebo-dev libass-dev \
             libasound2-dev libpulse-dev
 
       - uses: actions/setup-node@v4

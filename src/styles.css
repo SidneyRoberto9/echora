@@ -766,6 +766,26 @@ a:hover {
   margin-top: 14px;
 }
 
+.license-entry {
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+.license-entry summary {
+  cursor: pointer;
+  padding: 6px 0;
+}
+
+.license-entry__text {
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-size: 11px;
+  padding: 8px;
+  border: 1px solid oklch(85% 0.01 290);
+  border-radius: 4px;
+}
+
 /* ---------- Shared: empty / error / loading ---------- */
 
 .empty-state {

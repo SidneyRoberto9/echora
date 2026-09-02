@@ -24,7 +24,6 @@ meson setup build \
   -Dx11=disabled \
   -Dwayland=disabled \
   -Dcocoa=disabled \
-  -Dwin32-desktop=disabled \
   -Dalsa=enabled \
   -Dpulse=enabled \
   -Dlibmpv=false \
@@ -44,7 +43,16 @@ ldd "$OUT_DIR/mpv-$TARGET_TRIPLE" \
   | grep -E 'libav|libsw|libpostproc' \
   | xargs -I{} cp -n {} "$OUT_DIR/lib/"
 
-patchelf --force-rpath --set-rpath '$ORIGIN/lib' "$OUT_DIR/mpv-$TARGET_TRIPLE"
+# This dir is copied into the package's mpv-x86_64-unknown-linux-gnu/lib/
+# under Tauri's `resources` config, which lands at usr/lib/echora/lib/ in
+# both the .deb and the AppImage (confirmed empirically, not documented
+# by Tauri — see ADR 0007's Update). mpv itself lands at usr/bin/mpv, so
+# that's `$ORIGIN/../lib/echora/lib` from there. `--force-rpath` writes
+# the legacy DT_RPATH tag (not DT_RUNPATH) so this wins over the AppImage
+# AppRun's LD_LIBRARY_PATH, which otherwise resolves to a *different*,
+# system/GStreamer-provided copy of the same libavcodec.so.60 et al. that
+# linuxdeploy bundles flat under usr/lib/ for WebKitGTK's own use.
+patchelf --force-rpath --set-rpath "\$ORIGIN/../lib/echora/lib" "$OUT_DIR/mpv-$TARGET_TRIPLE"
 
 echo "Built $OUT_DIR/mpv-$TARGET_TRIPLE"
 "$OUT_DIR/mpv-$TARGET_TRIPLE" --version

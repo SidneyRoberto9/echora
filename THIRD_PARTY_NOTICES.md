@@ -10,24 +10,25 @@ Status: **Fase 3 (Media Integration) validated the real sidecar chain in
 dev** (search → resolve → mpv playback, live, with actual audio). Exact
 pinned versions/checksums for the *shipped* artifact, and the portable
 mpv build itself, are finalized in Fase 8 (Packaging) — see
-`docs/adr/0007-arm64-native-ci-and-mpv-build.md`. Rust and npm
-compile-time dependencies (pulled via Cargo/npm, not separately
-redistributed as binaries) will be audited with `cargo-about`/`cargo-deny`
-and `npm ls`/license-checker before the first release and listed here.
+`docs/adr/0007-arm64-native-ci-and-mpv-build.md`.
 
-**PRE-RELEASE BLOCKER, caught in the Packaging feature's final branch
-review (2026-09-01), not yet done:** `.github/workflows/release.yml`
-(the tag-triggered release pipeline) does not fetch, bundle, or
-otherwise ship mpv's or yt-dlp's license text anywhere in the produced
-`.deb`/AppImage, and runs no `cargo-about`/license-audit step. Both are
-real obligations per the table below the moment a real binary ships, not
-just documentation hygiene. **Do not push a real (non-scratch-test)
-release tag until:** (1) mpv's GPL-2.0+ license text and yt-dlp's GPLv3+
-license text + its own `THIRD_PARTY_LICENSES.txt` are bundled into the
-package and reachable from the app (an in-app "Licenses" view or
-equivalent), (2) Deno's MIT notice is included, and (3) the
-`cargo-about`/npm-license-audit pass promised above has actually run at
-least once against the real dependency tree.
+**Update (2026-09-01) — the three items below are resolved:**
+1. mpv's GPL-2.0+ text, yt-dlp's Unlicense + GPLv3+ (`THIRD_PARTY_LICENSES.txt`,
+   covering the standalone binary's bundled Readline), Deno's MIT notice, and
+   Rust MPL-2.0 dependencies' license text are all embedded directly into
+   Echora's compiled binary (`include_str!`, same pattern as
+   `docs/adr/0008`'s bundled `moods.json` — see `src-tauri/src/licenses.rs`)
+   and reachable in-app via Settings → Third-Party Licenses. Baked in at
+   compile time, so it's present regardless of `.deb`/AppImage packaging
+   details — no `tauri.conf.json` `resources` entry needed for this part.
+2. The `cargo-about`/`cargo-deny` and npm license-checker audit promised
+   above has run against the real dependency tree — see the two tables
+   below.
+
+**Still open, pre-release blocker:** the mpv **binary itself** (not its
+license text) still needs its `.so` runtime dependencies correctly bundled
+into the `.deb`/AppImage via `tauri.conf.json`'s `resources` field — see
+the "Open item" in `docs/adr/0007-arm64-native-ci-and-mpv-build.md`.
 
 ## Bundled sidecar binaries
 
@@ -46,11 +47,28 @@ least once against the real dependency tree.
 
 ## Compile-time dependencies (Rust crates, npm packages)
 
-Not separately redistributed as standalone binaries — compiled/bundled
-into the Echora application itself. To be enumerated here via automated
-license-audit tooling (`cargo-about` for Rust, an npm license checker for
-JS) before the first tagged release, with any copyleft-licensed crate
-flagged and resolved before it ships.
+Not separately redistributed as standalone binaries — compiled/bundled into
+the Echora application itself.
+
+**Rust dependency tree**: audited 2026-09-01 via `cargo deny check licenses`
+(default-deny config) against the full resolved tree. Every license string
+found is permissive (MIT, Apache-2.0, BSD-2/3-Clause, ISC, Zlib, 0BSD,
+Unlicense, CC0-1.0, MIT-0, CDLA-Permissive-2.0, Unicode-3.0, and their OR
+combinations) except the two entries below — no GPL/AGPL anywhere in the
+compiled-in Rust tree.
+
+| Component | License | Verdict | Obligation |
+|---|---|---|---|
+| **attohttpc, cssparser, cssparser-macros, dtoa-short, mpris-server** (Echora's own direct dependency, MPRIS desktop integration), **option-ext, selectors** | MPL-2.0 (plain, no OR) | **SAFE** — unmodified crates.io dependencies, statically compiled into Echora's binary. MPL-2.0 is weak, file-level copyleft: its "Larger Work" clause (§3.3) explicitly permits combining MPL-covered code with proprietary code without forcing the combined binary under MPL — unlike GPL/AGPL, ADR 0001/0006's linking-forces-copyleft finding does not apply here. | License text bundled and reachable via the app's Settings → Third-Party Licenses view (one copy, shared across all seven — see `src-tauri/src/licenses.rs`). Each crate's exact version is public, unmodified source on crates.io/upstream, which already satisfies MPL-2.0 §3.2's source-availability requirement. If any of these seven is ever forked/patched, its modified files must be republished under MPL-2.0 — re-review before that ships. |
+| **r-efi** (v5.3.0, v6.0.0) | MIT OR Apache-2.0 OR LGPL-2.1-or-later | **SAFE** — disjunctive multi-license; Echora elects **MIT**, complies solely with MIT's terms. LGPL-2.1-or-later is one of three alternatives offered, not a mandatory term; electing a different offered license carries no LGPL obligation (no dynamic-linking requirement, no source disclosure). | Standard MIT attribution (crate name + copyright notice) only. |
+
+**npm dependency tree**: audited 2026-09-01 via `npx license-checker
+--summary` against 145 packages. All permissive: MIT (125), Apache-2.0
+(14), ISC (10), BSD-2-Clause (6), Apache-2.0 OR MIT (4), MIT OR Apache-2.0
+(3), BSD-3-Clause (2), CC-BY-4.0 (1), BlueOak-1.0.0 (1). The one
+"UNLICENSED" entry is `echora@0.1.0` itself (the scanned project, not a
+dependency) — not a real finding. No GPL/AGPL/LGPL anywhere in the npm
+tree.
 
 ## Notes
 

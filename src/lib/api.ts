@@ -72,6 +72,12 @@ export interface CrashSummary {
   message: string;
 }
 
+export interface LicenseEntry {
+  component: string;
+  license: string;
+  text: string;
+}
+
 export interface QueueView {
   current: Track | null;
   upcoming: Track[];
@@ -126,6 +132,7 @@ export const api = {
   listMoods: () => call<MoodSummary[]>("list_moods"),
   surpriseMe: () => call<SessionInfo>("surprise_me"),
   isAppimageBuild: () => call<boolean>("is_appimage_build"),
+  getThirdPartyLicenses: () => call<LicenseEntry[]>("get_third_party_licenses"),
 
   getSettings: () => call<Settings>("get_settings"),
   updateSettings: (settings: Settings) => call<void>("update_settings", { settings }),

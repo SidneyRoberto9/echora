@@ -22,6 +22,10 @@ pub struct AppState {
     pub queue: Mutex<Queue>,
     pub moods: MoodCatalog,
     pub resolver: Resolver,
+    /// Background resolve of the track predicted to play next, so it's
+    /// often already done by the time it's needed — see
+    /// `media::prefetch::Prefetch`.
+    pub prefetch: media::prefetch::Prefetch,
     pub player: tokio::sync::Mutex<Player>,
     /// `None` when the D-Bus session bus wasn't reachable at startup — MPRIS
     /// is a nice-to-have desktop integration, never a startup requirement.
