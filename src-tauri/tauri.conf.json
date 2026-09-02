@@ -33,6 +33,9 @@
       "binaries/yt-dlp",
       "binaries/deno"
     ],
+    "resources": {
+      "binaries/lib/*": "lib/"
+    },
     "createUpdaterArtifacts": true,
     "linux": {
       "deb": {
