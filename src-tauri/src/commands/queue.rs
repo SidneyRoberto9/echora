@@ -1,4 +1,4 @@
-use tauri::State;
+use tauri::{Emitter, State};
 
 use crate::error::{EchoraError, Result};
 use crate::models::{QueueView, SceneSummary, Track};
@@ -9,6 +9,14 @@ use crate::state::AppState;
 /// there's benchmarking (see docs/REQUIREMENTS_FREEZE.md's performance
 /// goals).
 const LOW_WATERMARK: usize = 3;
+
+/// Emitted after the queue advances on its own (a track finished playing
+/// naturally — see `media::auto_advance`), never after a manual
+/// next/previous/skip-to. Those are user-triggered and the frontend
+/// already knows to refresh its own state right after calling them; a
+/// track ending on its own is the one transition Rust has to actively
+/// push, since nothing else on the frontend polls the queue.
+pub(crate) const TRACK_AUTO_ADVANCED_EVENT: &str = "track-auto-advanced";
 
 #[tauri::command]
 pub fn get_queue(state: State<AppState>) -> QueueView {
@@ -24,15 +32,69 @@ pub async fn queue_next(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<Option<Track>> {
+    advance_and_play(&app, state, None).await
+}
+
+/// Core of `queue_next`, shared with the automatic end-of-track watcher
+/// (`media::auto_advance`). `expected_current` is `None` for a manual skip
+/// (always advances — a user-triggered action takes effect regardless of
+/// what's current) or `Some(track_id)` for an automatic advance, which
+/// must become a no-op if the queue's current track already changed out
+/// from under the watcher (e.g. the user clicked Next/Previous/skip-to at
+/// the same moment mpv reported end-of-file) instead of double-advancing.
+async fn advance_and_play(
+    app: &tauri::AppHandle,
+    state: State<'_, AppState>,
+    expected_current: Option<&str>,
+) -> Result<Option<Track>> {
+    // Best-effort even when this turns out to be a stale auto-advance: the
+    // `session_tracks` row this writes is keyed on `(session_id,
+    // position)` and gets overwritten by whatever mutation "wins" the
+    // guard below, so recording it unconditionally first isn't a
+    // correctness issue, just occasionally redundant work.
     super::record_current_completion(&state).await?;
 
-    let advanced = state.queue.lock().unwrap().next().cloned();
+    let advanced = advance_queue_if_expected(&state, expected_current);
     if let Some(track) = &advanced {
-        super::resolve_and_load(&app, &state, track).await?;
+        super::resolve_and_load(app, &state, track).await?;
     }
 
     // Best-effort: a stalled top-up shouldn't fail an otherwise-successful skip.
     let _ = ensure_queue_topped_up(app.clone(), state.clone()).await;
+    Ok(advanced)
+}
+
+/// Advances the queue past its current track if `expected_current` still
+/// matches it (or unconditionally when `None`) — the guard itself, atomic
+/// under a single lock acquisition so it's race-free against a concurrent
+/// manual `queue_next`/`queue_previous`/`queue_skip_to` even though the
+/// rest of `advance_and_play` isn't. Split out from `advance_and_play` so
+/// it's unit-testable without a real Tauri window (matching
+/// `make_room_for_single_track`'s own `&AppState`-only shape).
+fn advance_queue_if_expected(state: &AppState, expected_current: Option<&str>) -> Option<Track> {
+    let mut queue = state.queue.lock().unwrap();
+    if let Some(expected) = expected_current
+        && !queue.current().is_some_and(|t| t.id == expected)
+    {
+        return None;
+    }
+    queue.next().cloned()
+}
+
+/// Entry point for `media::auto_advance`'s watcher: advances the queue only
+/// if `track_id` is still current (see `advance_and_play`), then tells the
+/// frontend a track just changed on its own — the one propagation gap that
+/// isn't already covered by a user-triggered action's own follow-up
+/// `refreshQueue()`.
+pub(crate) async fn auto_advance_from_watcher(
+    app: &tauri::AppHandle,
+    state: State<'_, AppState>,
+    track_id: &str,
+) -> Result<Option<Track>> {
+    let advanced = advance_and_play(app, state, Some(track_id)).await?;
+    if advanced.is_some() {
+        let _ = app.emit(TRACK_AUTO_ADVANCED_EVENT, ());
+    }
     Ok(advanced)
 }
 
@@ -305,5 +367,66 @@ mod tests {
 
         assert_eq!(summary.name, "My Scene");
         assert_eq!(summary.track_count, 2);
+    }
+
+    #[test]
+    fn advance_queue_if_expected_with_no_expectation_always_advances() {
+        // Matches a manual `queue_next`: a user-triggered skip always takes
+        // effect regardless of what's current.
+        let state = test_state();
+        state
+            .queue
+            .lock()
+            .unwrap()
+            .add_candidates([track("a"), track("b")]);
+
+        let advanced = advance_queue_if_expected(&state, None);
+
+        assert_eq!(advanced.unwrap().id, "b");
+        assert_eq!(state.queue.lock().unwrap().current().unwrap().id, "b");
+    }
+
+    #[test]
+    fn advance_queue_if_expected_advances_when_the_expected_track_is_still_current() {
+        let state = test_state();
+        state
+            .queue
+            .lock()
+            .unwrap()
+            .add_candidates([track("a"), track("b")]);
+
+        let advanced = advance_queue_if_expected(&state, Some("a"));
+
+        assert_eq!(advanced.unwrap().id, "b");
+        assert_eq!(state.queue.lock().unwrap().current().unwrap().id, "b");
+    }
+
+    #[test]
+    fn advance_queue_if_expected_is_a_no_op_when_the_queue_already_moved_on() {
+        // The race `media::auto_advance`'s watcher has to guard against:
+        // the queue's current track no longer matches whatever the caller
+        // last observed as current (e.g. a manual skip/previous already
+        // ran) — must not double-advance.
+        let state = test_state();
+        state
+            .queue
+            .lock()
+            .unwrap()
+            .add_candidates([track("a"), track("b"), track("c")]);
+        state.queue.lock().unwrap().next(); // current is now "b"
+
+        let advanced = advance_queue_if_expected(&state, Some("a"));
+
+        assert_eq!(advanced, None);
+        assert_eq!(state.queue.lock().unwrap().current().unwrap().id, "b");
+    }
+
+    #[test]
+    fn advance_queue_if_expected_returns_none_at_the_end_of_the_queue() {
+        let state = test_state();
+        state.queue.lock().unwrap().add_candidates([track("a")]);
+
+        assert_eq!(advance_queue_if_expected(&state, Some("a")), None);
+        assert_eq!(advance_queue_if_expected(&state, None), None);
     }
 }

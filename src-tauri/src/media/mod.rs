@@ -1,3 +1,4 @@
+pub mod auto_advance;
 pub mod metadata;
 pub mod player;
 pub mod prefetch;
