@@ -22,6 +22,13 @@ pub struct Player {
     child: Option<CommandChild>,
     app_dir: PathBuf,
     crash_reporting_enabled: Arc<AtomicBool>,
+    /// Whether the `astats` metering filter has been successfully attached
+    /// for this mpv process yet — attached once, lazily, not per track (see
+    /// `media::audio_level::watch`), so later calls to
+    /// `enable_level_metering` are a cheap no-op instead of re-adding the
+    /// filter every track change.
+    #[allow(dead_code)]
+    level_metering_ready: bool,
 }
 
 impl Player {
@@ -35,6 +42,7 @@ impl Player {
             child: None,
             app_dir,
             crash_reporting_enabled,
+            level_metering_ready: false,
         }
     }
 
@@ -162,6 +170,59 @@ impl Player {
             .send_command(json!(["get_property", "duration"]))
             .await?;
         Ok(reply.get("data").and_then(Value::as_f64))
+    }
+
+    /// Attaches the RMS-level metering filter, once per mpv process. Later
+    /// calls are a no-op — safe to call unconditionally from every poll
+    /// tick in `media::audio_level::watch` rather than tracking "have I
+    /// called this yet" at the call site too.
+    ///
+    /// Verified against a real mpv 0.37.0 process: `af add` with this
+    /// exact filter spec succeeds once a file is loaded, and its metadata
+    /// (read via `audio_level_db`) updates continuously afterward without
+    /// needing to be re-added.
+    #[allow(dead_code)]
+    pub async fn enable_level_metering(&mut self) -> Result<()> {
+        if self.level_metering_ready {
+            return Ok(());
+        }
+        let reply = self
+            .send_command(json!([
+                "af",
+                "add",
+                "@echora_level:lavfi=[astats=metadata=1:reset=1]"
+            ]))
+            .await?;
+        if reply.get("error").and_then(Value::as_str) == Some("success") {
+            self.level_metering_ready = true;
+        }
+        Ok(())
+    }
+
+    /// Current RMS level in dBFS from the `astats` filter `enable_level_metering`
+    /// attaches, or `None` if metering isn't enabled yet, the filter hasn't
+    /// produced a reading yet, or the reading was non-finite (e.g. true
+    /// digital silence reads as `-inf`, which this treats the same as "no
+    /// data" rather than propagating an infinite value to the frontend).
+    ///
+    /// mpv's `af-metadata/<label>` property replies with `data` as a flat
+    /// object keyed by strings like `"lavfi.astats.Overall.RMS_level"`,
+    /// with **string-typed** values (e.g. `"-21.123621"`) — confirmed
+    /// against a real mpv process, not assumed from FFmpeg's docs alone.
+    #[allow(dead_code)]
+    pub async fn audio_level_db(&mut self) -> Result<Option<f64>> {
+        if !self.level_metering_ready {
+            return Ok(None);
+        }
+        let reply = self
+            .send_command(json!(["get_property", "af-metadata/echora_level"]))
+            .await?;
+        Ok(reply
+            .get("data")
+            .and_then(|d| d.get("lavfi.astats.Overall.RMS_level"))
+            .and_then(Value::as_str)
+            .and_then(|s| s.parse::<f64>().ok())
+            .filter(|v| v.is_finite()))
     }
 
     /// Ends the mpv process cleanly (asks it to quit, then kills it if it
@@ -305,5 +366,85 @@ mod smoke_tests {
             summaries[0].kind,
             crate::crash::CrashKind::SidecarCrash
         ));
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn enable_level_metering_is_a_noop_the_second_time() {
+        let app = test_app_handle();
+        let mut player = Player::new(
+            std::env::temp_dir().join(format!(
+                "echora-player-test-level-{}.sock",
+                std::process::id()
+            )),
+            std::env::temp_dir(),
+            std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        );
+        player.start(&app).await.unwrap();
+        player
+            .load("av://lavfi:sine=frequency=440:duration=5")
+            .await
+            .unwrap();
+
+        player.enable_level_metering().await.unwrap();
+        assert!(player.level_metering_ready);
+
+        // Second call must not error even though the filter is already
+        // attached — this is what makes it safe to call unconditionally
+        // from audio_level::watch every tick before reading a level.
+        player.enable_level_metering().await.unwrap();
+        assert!(player.level_metering_ready);
+
+        player.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn audio_level_db_returns_none_before_metering_is_enabled() {
+        let app = test_app_handle();
+        let mut player = Player::new(
+            std::env::temp_dir().join(format!(
+                "echora-player-test-level-none-{}.sock",
+                std::process::id()
+            )),
+            std::env::temp_dir(),
+            std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        );
+        player.start(&app).await.unwrap();
+
+        assert_eq!(player.audio_level_db().await.unwrap(), None);
+
+        player.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn audio_level_db_reads_a_real_rms_level_once_metering_is_enabled() {
+        let app = test_app_handle();
+        let mut player = Player::new(
+            std::env::temp_dir().join(format!(
+                "echora-player-test-level-real-{}.sock",
+                std::process::id()
+            )),
+            std::env::temp_dir(),
+            std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        );
+        player.start(&app).await.unwrap();
+        player
+            .load("av://lavfi:sine=frequency=440:duration=5")
+            .await
+            .unwrap();
+        player.enable_level_metering().await.unwrap();
+
+        // Give mpv a moment to actually start decoding/filtering audio —
+        // mirrors the existing smoke tests' pattern of a short sleep after
+        // a state-changing IPC call before reading it back.
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+        let level = player.audio_level_db().await.unwrap();
+        assert!(level.is_some());
+        assert!(level.unwrap().is_finite());
+
+        player.shutdown().await.unwrap();
     }
 }
