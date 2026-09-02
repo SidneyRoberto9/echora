@@ -2,6 +2,7 @@ mod commands;
 mod crash;
 mod db;
 mod error;
+mod licenses;
 mod media;
 mod models;
 mod mood_engine;
@@ -30,6 +31,11 @@ fn greet(name: &str) -> String {
 #[tauri::command]
 fn is_appimage_build() -> bool {
     std::env::var_os("APPIMAGE").is_some()
+}
+
+#[tauri::command]
+fn get_third_party_licenses() -> Vec<licenses::LicenseEntry> {
+    licenses::all()
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -106,6 +112,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             greet,
             is_appimage_build,
+            get_third_party_licenses,
             commands::mood::list_moods,
             commands::mood::surprise_me,
             commands::settings::get_settings,

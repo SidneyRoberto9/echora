@@ -4,7 +4,7 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { getVersion } from "@tauri-apps/api/app";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useSettings } from "../hooks/useSettings";
-import { api, type CrashSummary } from "../lib/api";
+import { api, type CrashSummary, type LicenseEntry } from "../lib/api";
 
 const CACHE_OPTIONS: { label: string; mb: number }[] = [
   { label: "250MB", mb: 250 },
@@ -226,6 +226,30 @@ function UpdatesSection({ onError }: { onError: (message: string) => void }) {
   );
 }
 
+function LicensesSection() {
+  const [licenses, setLicenses] = useState<LicenseEntry[]>([]);
+
+  useEffect(() => {
+    api.getThirdPartyLicenses().then(setLicenses).catch(() => {});
+  }, []);
+
+  if (licenses.length === 0) return null;
+
+  return (
+    <>
+      <h2 className="settings-section__title">Third-Party Licenses</h2>
+      {licenses.map((entry) => (
+        <details className="license-entry" key={entry.component}>
+          <summary>
+            {entry.component} — {entry.license}
+          </summary>
+          <pre className="license-entry__text">{entry.text}</pre>
+        </details>
+      ))}
+    </>
+  );
+}
+
 interface SettingsViewProps {
   onError: (message: string) => void;
 }
@@ -349,6 +373,8 @@ export function SettingsView({ onError }: SettingsViewProps) {
         </div>
         <CrashReportsList enabled={settings.crash_report_enabled} onError={onError} />
         <div className="privacy-note">No account · No cloud · No telemetry by default</div>
+
+        <LicensesSection />
       </div>
     </div>
   );
