@@ -27,7 +27,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["deb", "appimage"],
     "externalBin": [
       "binaries/mpv",
       "binaries/yt-dlp",
