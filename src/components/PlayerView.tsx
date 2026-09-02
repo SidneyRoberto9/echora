@@ -62,7 +62,7 @@ export function PlayerView({
   return (
     <div className="player-view">
       <div className="player-view__glow" aria-hidden="true" />
-      <div className="player-view__topbar">
+      <div className="player-view__topbar" data-tauri-drag-region>
         <button type="button" className="icon-btn" aria-label="Back" onClick={onCollapse}>
           <BackIcon />
         </button>
