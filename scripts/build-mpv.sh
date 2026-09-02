@@ -12,6 +12,12 @@ MPV_VERSION="v0.41.0"
 TARGET_TRIPLE="${1:?usage: build-mpv.sh <target-triple> <output-dir>}"
 OUT_DIR="${2:?usage: build-mpv.sh <target-triple> <output-dir>}"
 
+# Resolve to an absolute path before the `cd` below, or every later use
+# of $OUT_DIR (relative) would land inside $WORK_DIR and get wiped by
+# the EXIT trap along with the rest of the mpv clone.
+mkdir -p "$OUT_DIR"
+OUT_DIR="$(cd "$OUT_DIR" && pwd)"
+
 WORK_DIR="$(mktemp -d)"
 trap 'rm -rf "$WORK_DIR"' EXIT
 
