@@ -4,6 +4,15 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+  schedule:
+    # 03:00 UTC every Monday: after the weekend (quiet shared-runner
+    # capacity), ahead of the work week's first pushes, so a bundling
+    # regression is caught within days rather than only when someone
+    # remembers to click "Run workflow" or at the next tag push. Only
+    # `package-smoke-test` (below) actually runs on this trigger —
+    # `frontend`/`rust`/`build` running too is a harmless, cheap re-check.
+    - cron: '0 3 * * 1'
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -17,8 +26,8 @@ jobs:
     name: Frontend (lint + typecheck + build)
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
@@ -30,16 +39,16 @@ jobs:
     name: Rust (fmt + clippy + test)
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Install Tauri Linux prerequisites
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
             libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
           components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: src-tauri
       - name: Stub sidecar binaries
@@ -65,18 +74,18 @@ jobs:
             triple: aarch64-unknown-linux-gnu
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Install Tauri Linux prerequisites
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
             libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: src-tauri
       - run: npm ci
@@ -85,6 +94,104 @@ jobs:
         run: ./scripts/stub-sidecar-binaries.sh ${{ matrix.triple }} src-tauri/binaries
       - name: cargo build --release
         run: cargo build --manifest-path src-tauri/Cargo.toml --release
-      # Full `tauri build` packaging (.deb/AppImage with sidecars) lands
-      # in Fase 8 once the mpv/yt-dlp/Deno sidecar binaries exist
-      # (see docs/adr/0007-arm64-native-ci-and-mpv-build.md).
+      # This job intentionally stops at `cargo build --release` with stub
+      # sidecars — it's the fast lane that runs on every push/PR. Real
+      # `tauri build` packaging (.deb/AppImage, real mpv, real sidecars)
+      # is exercised by `package-smoke-test` below, not deferred to a
+      # future phase — see docs/adr/0007-arm64-native-ci-and-mpv-build.md.
+
+  # Builds mpv from source and the real `.deb`/AppImage the same way
+  # release.yml does, then installs the `.deb` into a throwaway container
+  # that has none of the `-dev` build packages present and verifies the
+  # bundled mpv sidecar actually resolves its libraries and runs. This is
+  # the test that would have caught mpv silently failing to start on a
+  # clean install (missing libass/libplacebo and their transitive deps) —
+  # see docs/adr/0007-arm64-native-ci-and-mpv-build.md.
+  #
+  # Not run on every push/PR: compiling mpv from source and building two
+  # full package formats per architecture is expensive, and this job
+  # additionally builds and boots a container per run. Gated to
+  # `workflow_dispatch` (run on demand, e.g. before cutting a release) and
+  # the weekly `schedule` above instead.
+  package-smoke-test:
+    name: Package smoke test (${{ matrix.arch }})
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    needs: [frontend, rust]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+            triple: x86_64-unknown-linux-gnu
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+            triple: aarch64-unknown-linux-gnu
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install Tauri Linux prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev xdg-utils
+      - name: Install mpv build prerequisites
+        # Mirrors release.yml's package list — keep the two in sync.
+        run: |
+          sudo apt-get install -y meson ninja-build patchelf pkg-config \
+            libavcodec-dev libavfilter-dev libavformat-dev libavutil-dev \
+            libswresample-dev libswscale-dev libplacebo-dev libass-dev \
+            libasound2-dev libpulse-dev
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          workspaces: src-tauri
+      - run: npm ci
+      - name: Build mpv
+        run: ./scripts/build-mpv.sh ${{ matrix.triple }} src-tauri/binaries
+      - name: Fetch yt-dlp/Deno
+        run: ./scripts/fetch-sidecar-binaries.sh ${{ matrix.arch }} ${{ matrix.triple }} src-tauri/binaries
+      - name: tauri build (real packaging — no release created or published)
+        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        # No tagName/releaseDraft/prerelease inputs: this builds and
+        # bundles only, it does not create or upload to a GitHub Release
+        # (matches tauri-action's documented behavior when tagName is
+        # omitted).
+      - name: Smoke test the .deb in a clean container
+        # Decisive, not cosmetic: installs *only* the .deb plus whatever
+        # `deb.depends` pulls via apt — none of the `-dev` packages
+        # installed above are present — into a bare `ubuntu:24.04`
+        # image, then checks the exact two things P1-8 was about: every
+        # library the bundled mpv needs actually resolves, and the
+        # dynamic loader can actually start it. Proven to fail loudly
+        # when a lib is missing (verified locally by deleting one
+        # bundled .so before this check and confirming it reports the
+        # miss and exits non-zero, instead of silently passing).
+        run: |
+          set -euo pipefail
+          DEB_PATH="$(find src-tauri/target/release/bundle/deb -name '*.deb' -print -quit)"
+          if [ -z "$DEB_PATH" ]; then
+            echo "no .deb found under src-tauri/target/release/bundle/deb" >&2
+            exit 1
+          fi
+          docker run --rm -v "$PWD/$DEB_PATH:/echora.deb:ro" ubuntu:24.04 bash -c '
+            set -euo pipefail
+            apt-get update -qq
+            apt-get install -y -qq /echora.deb
+            echo "--- ldd /usr/bin/mpv ---"
+            if ldd /usr/bin/mpv | grep -q "not found"; then
+              echo "MISSING LIBRARIES (P1-8 regression):" >&2
+              ldd /usr/bin/mpv | grep "not found" >&2
+              exit 1
+            fi
+            echo "--- mpv --version ---"
+            /usr/bin/mpv --version
+          '
