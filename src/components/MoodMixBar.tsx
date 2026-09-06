@@ -1,5 +1,6 @@
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import type { MoodSummary } from "../lib/api";
+import { evaluateMoodCoherence } from "../lib/moodCoherence";
 
 interface MoodMixBarProps {
   moods: MoodSummary[];
@@ -33,6 +34,14 @@ export function MoodMixBar({ moods, weights, onChangeWeights, onStart, busy }: M
     [weights, onChangeWeights],
   );
 
+  const coherence = useMemo(
+    () =>
+      evaluateMoodCoherence(
+        moods.map((mood, i) => ({ id: mood.id, name: mood.name, traits: mood.traits, weight: weights[i] ?? 0 })),
+      ),
+    [moods, weights],
+  );
+
   return (
     <div className="mood-mix-bar">
       <div className="mood-mix-bar__chips">
@@ -42,6 +51,13 @@ export function MoodMixBar({ moods, weights, onChangeWeights, onStart, busy }: M
           </span>
         ))}
       </div>
+
+      <p
+        className={`mood-mix-bar__coherence mood-mix-bar__coherence--${coherence.level}`}
+        aria-live="polite"
+      >
+        {coherence.message}
+      </p>
 
       <input
         type="range"

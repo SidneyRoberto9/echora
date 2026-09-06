@@ -355,6 +355,15 @@ a:hover {
   border-radius: var(--radius-sm);
   padding: 4px 10px;
 }
+.mood-mix-bar__coherence {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin: 0;
+}
+.mood-mix-bar__coherence--tense,
+.mood-mix-bar__coherence--clashing {
+  color: var(--danger);
+}
 .mood-mix-bar__slider {
   width: 100%;
   accent-color: var(--accent);
