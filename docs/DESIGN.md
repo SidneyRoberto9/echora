@@ -11,7 +11,9 @@ reference, not a spec that updates itself.
 
 ## Typography
 
-- **Sora** (Google Fonts, weights 400/500/600/700) for all UI text.
+- **Sora** (self-hosted, `public/fonts/`, weights 400/500/600/700, latin
+  subset, SIL OFL 1.1 — see `THIRD_PARTY_NOTICES.md`) for all UI text. No
+  Google Fonts network request at runtime.
 - Fallback stack: `ui-sans-serif, system-ui, sans-serif`.
 
 ## Color tokens (oklch)
