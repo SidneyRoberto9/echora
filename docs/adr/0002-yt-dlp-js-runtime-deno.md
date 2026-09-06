@@ -45,3 +45,14 @@ cold starts is a real problem.
 - Requires Echora's Rust core to manage two more subprocess lifecycles
   (yt-dlp, Deno) alongside mpv — handled by the same sidecar-management
   code path, not bespoke per binary.
+
+## Update (2026-09-06): pinned versions, not `latest`
+`scripts/fetch-sidecar-binaries.sh` originally downloaded both binaries
+from each project's `releases/latest` and validated the checksum
+fetched from that same `latest` release — which only proved the
+download wasn't corrupted in transit, not that it was the version
+Echora actually tested or that it hadn't been swapped upstream. Both
+are now pinned to an explicit version with an expected SHA-256 recorded
+in the script itself, resolved from the real release at pin time. This
+does not freeze yt-dlp — see CONTRIBUTING.md's "Bumping sidecar
+versions" section for how and when to move the pin forward.

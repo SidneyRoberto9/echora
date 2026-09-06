@@ -70,6 +70,41 @@ cargo test
 Don't open a PR with failing checks "to get feedback" — open it as a draft
 instead and say so.
 
+## Bumping sidecar versions
+
+`scripts/fetch-sidecar-binaries.sh` pins yt-dlp and Deno to an explicit
+version and an expected SHA-256, both recorded near the top of the
+script — deliberately, not fetched from `latest` at build/release time
+(see docs/adr/0002-yt-dlp-js-runtime-deno.md). Bumping a pin is a normal,
+expected act, not something to avoid: yt-dlp especially needs to stay
+current or YouTube extraction breaks. It just has to be done, not left
+to happen silently.
+
+To bump yt-dlp (the more volatile one — check this first when YouTube
+extraction starts failing) or Deno:
+
+1. Find the new version's release page (e.g.
+   `https://github.com/yt-dlp/yt-dlp/releases/latest` or
+   `https://github.com/denoland/deno/releases/latest`) and note its tag.
+2. Download that release's checksum file(s) and read off the SHA-256 for
+   each asset this script uses — yt-dlp's `SHA2-256SUMS` covers
+   `yt-dlp_linux` and `yt-dlp_linux_aarch64`; Deno publishes a
+   `<asset>.sha256sum` file per zip (`deno-x86_64-unknown-linux-gnu.zip`,
+   `deno-aarch64-unknown-linux-gnu.zip`). Don't compute the hash from a
+   locally downloaded file and call it "verified" — read it from
+   upstream's own published checksum, so the pin reflects what upstream
+   says it shipped, not just what you happened to receive.
+3. Update `YT_DLP_VERSION`/`DENO_VERSION` and the corresponding
+   `*_SHA256` values in `scripts/fetch-sidecar-binaries.sh`, and the
+   "Pinned versions (checked ...)" comment's date and links.
+4. Run the script locally against a scratch directory (not
+   `src-tauri/binaries` if others are using it) and confirm it downloads
+   and verifies cleanly:
+   `scripts/fetch-sidecar-binaries.sh x86_64 x86_64-unknown-linux-gnu /tmp/some-scratch-dir`
+5. Open the PR as normal. The release workflow prints the pinned
+   mpv/yt-dlp/Deno versions and attaches them as a text file to the
+   GitHub release, so "what shipped in vX.Y.Z" stays answerable later.
+
 ## What happens to your contribution
 
 By submitting a pull request or patch, you agree to the Contribution
