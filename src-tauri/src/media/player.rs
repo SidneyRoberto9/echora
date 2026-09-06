@@ -8,9 +8,20 @@ use tauri_plugin_shell::ShellExt;
 use tauri_plugin_shell::process::CommandChild;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
+use tokio::time::timeout;
 
 use crate::crash;
 use crate::error::{EchoraError, Result};
+
+/// How long a single mpv IPC round trip (connect, write the command, read
+/// its matching reply) is allowed to take before this treats mpv as hung
+/// rather than merely slow. mpv is local, one-shot-connection IPC — a
+/// couple of seconds is already generous for a live process. Without this,
+/// a wedged-but-still-running mpv (alive, but not servicing its socket)
+/// would hold `send_command`'s connection open indefinitely, and with it
+/// the shared `tokio::sync::Mutex<Player>` every playback command, MPRIS
+/// call, and the tray/watchers all wait on.
+const COMMAND_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Wraps the mpv sidecar: spawned as a subprocess (never linked — see
 /// docs/adr/0001), audio-only, controlled entirely over its own JSON IPC
@@ -81,9 +92,9 @@ impl Player {
     }
 
     async fn send_command(&mut self, command: Value) -> Result<Value> {
-        let stream = match UnixStream::connect(&self.socket_path).await {
-            Ok(s) => s,
-            Err(err) => {
+        let stream = match timeout(COMMAND_TIMEOUT, UnixStream::connect(&self.socket_path)).await {
+            Ok(Ok(s)) => s,
+            Ok(Err(err)) => {
                 if self.child.is_some() {
                     // mpv is supposed to be running but its socket is
                     // gone — it died outside our own shutdown() path.
@@ -97,20 +108,45 @@ impl Player {
                 }
                 return Err(EchoraError::Io(err));
             }
+            // A timed-out connect is *not* the same as "mpv is gone": the
+            // process may well still be alive, just not servicing its
+            // socket right now. Treat it as a plain IPC failure rather
+            // than tearing down `self.child` — doing that here would make
+            // a later `start()` spawn a second mpv on top of a first one
+            // that's still actually running, orphaning it.
+            Err(_) => return Err(EchoraError::SidecarTimeout("mpv".into())),
         };
         let (read_half, mut write_half) = stream.into_split();
 
         let payload = json!({ "command": command });
-        write_half
-            .write_all(format!("{payload}\n").as_bytes())
-            .await
-            .map_err(EchoraError::Io)?;
+        match timeout(
+            COMMAND_TIMEOUT,
+            write_half.write_all(format!("{payload}\n").as_bytes()),
+        )
+        .await
+        {
+            Ok(Ok(())) => {}
+            Ok(Err(err)) => return Err(EchoraError::Io(err)),
+            Err(_) => return Err(EchoraError::SidecarTimeout("mpv".into())),
+        }
 
         let mut reader = BufReader::new(read_half);
         let mut line = String::new();
         loop {
             line.clear();
-            let bytes_read = reader.read_line(&mut line).await.map_err(EchoraError::Io)?;
+            let bytes_read = match timeout(COMMAND_TIMEOUT, reader.read_line(&mut line)).await {
+                Ok(Ok(n)) => n,
+                Ok(Err(err)) => return Err(EchoraError::Io(err)),
+                // mpv is alive but not replying (wedged) — this is exactly
+                // the case a bare `read_line().await` would hang on
+                // forever, holding the shared `tokio::sync::Mutex<Player>`
+                // and stalling every other playback/MPRIS/tray/watcher
+                // command along with it. Surface it as a clean IPC error
+                // instead; the connection this function opened is dropped
+                // (and closed) right after this returns either way, so
+                // there's no lingering half-open socket to clean up.
+                Err(_) => return Err(EchoraError::SidecarTimeout("mpv".into())),
+            };
             if bytes_read == 0 {
                 return Err(EchoraError::SidecarTimeout("mpv".into()));
             }
@@ -233,6 +269,61 @@ impl Player {
         }
         let _ = std::fs::remove_file(&self.socket_path);
         Ok(())
+    }
+}
+
+/// Deterministic IPC-layer tests: a bare Unix socket standing in for mpv,
+/// not the real binary — no `--ignored`, no network, safe to run every
+/// time.
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Instant;
+    use tokio::net::UnixListener;
+
+    fn hang_socket_path() -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "echora-player-test-hang-{}-{}.sock",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ))
+    }
+
+    /// Regression test for P2-2: a peer that accepts the connection but
+    /// never replies (a wedged-but-alive mpv, from `send_command`'s point
+    /// of view) must not hang `send_command` forever — it has to give up
+    /// around `COMMAND_TIMEOUT` with a clean `SidecarTimeout` error.
+    #[tokio::test]
+    async fn send_command_times_out_instead_of_hanging_on_a_silent_peer() {
+        let socket_path = hang_socket_path();
+        let listener = UnixListener::bind(&socket_path).unwrap();
+        let _accepting = tokio::spawn(async move {
+            // Accept the connection and then go silent for the rest of the
+            // test -- never writes a reply.
+            let (_stream, _addr) = listener.accept().await.unwrap();
+            std::future::pending::<()>().await
+        });
+
+        let mut player = Player::new(
+            socket_path.clone(),
+            std::env::temp_dir(),
+            std::sync::Arc::new(AtomicBool::new(false)),
+        );
+
+        let started = Instant::now();
+        let err = player.set_volume(50).await.unwrap_err();
+        let elapsed = started.elapsed();
+
+        assert!(matches!(err, EchoraError::SidecarTimeout(_)));
+        assert!(
+            elapsed < Duration::from_secs(3),
+            "send_command should give up around COMMAND_TIMEOUT, took {elapsed:?} instead"
+        );
+
+        let _ = std::fs::remove_file(&socket_path);
     }
 }
 
