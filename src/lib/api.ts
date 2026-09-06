@@ -136,7 +136,7 @@ export const api = {
   getThirdPartyLicenses: () => call<LicenseEntry[]>("get_third_party_licenses"),
 
   getSettings: () => call<Settings>("get_settings"),
-  updateSettings: (settings: Settings) => call<void>("update_settings", { settings }),
+  updateSettings: (patch: Partial<Settings>) => call<Settings>("update_settings", { patch }),
 
   startMoodSession: (moodId: string) => call<SessionInfo>("start_mood_session", { moodId }),
   startMixedSession: (moods: SessionMood[]) => call<SessionInfo>("start_mixed_session", { moods }),

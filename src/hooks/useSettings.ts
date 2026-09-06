@@ -24,17 +24,19 @@ export function useSettings() {
     };
   }, []);
 
-  // Optimistic: the toggle flips immediately, the write happens in the
-  // background — Settings changes are low-stakes enough not to wait on.
+  // Optimistic: the toggle flips immediately in the UI, but the value
+  // that sticks is whatever Rust's `update_settings` merges the patch
+  // onto -- not a local read-modify-write of a copy loaded at mount time,
+  // which is exactly the lost-update bug a partial-patch command exists
+  // to avoid (e.g. the volume changed via the player slider in between).
   const update = useCallback((patch: Partial<Settings>) => {
-    setSettings((prev) => {
-      if (!prev) return prev;
-      const next = { ...prev, ...patch };
-      api.updateSettings(next).catch((err) => {
+    setSettings((prev) => (prev ? { ...prev, ...patch } : prev));
+    api
+      .updateSettings(patch)
+      .then((merged) => setSettings(merged))
+      .catch((err) => {
         setError(err instanceof Error ? err.message : String(err));
       });
-      return next;
-    });
   }, []);
 
   return { settings, loading, error, update };
