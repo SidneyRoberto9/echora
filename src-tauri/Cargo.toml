@@ -1,10 +1,12 @@
 [package]
 name = "echora"
 version = "0.1.1"
-description = "A Tauri App"
-authors = ["you"]
+description = "Mood-first, ultra-lightweight desktop audio player for Linux."
+authors = ["Sidney Roberto <sidneyrpsilva@gmail.com>"]
 edition = "2024"
 license-file = "../LICENSE"
+repository = "https://github.com/SidneyRoberto9/echora"
+homepage = "https://github.com/SidneyRoberto9/echora"
 publish = false
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
