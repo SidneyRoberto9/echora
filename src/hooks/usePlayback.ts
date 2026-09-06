@@ -1,10 +1,30 @@
-import { useCallback, useEffect, useState } from "react";
-import { api, type QueueView } from "../lib/api";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { api, type QueueView, type SkippedTrack } from "../lib/api";
 
 const EMPTY_QUEUE: QueueView = { current: null, upcoming: [], position: null };
 
+// How long a volume slider drag can go quiet before the setting actually
+// gets saved to SQLite (P1-4) — the on-screen slider and mpv's real volume
+// are never delayed by this, only the persisted preference is.
+const VOLUME_PERSIST_DEBOUNCE_MS = 400;
+
+const SKIPPED_REASON_LABEL: Record<SkippedTrack["reason"], string> = {
+  private: "private",
+  region_blocked: "blocked in your region",
+  removed: "removed",
+  unknown: "unavailable",
+};
+
 function messageOf(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+function trackUnavailableMessage(tracks: SkippedTrack[]): string {
+  if (tracks.length === 1) {
+    const [track] = tracks;
+    return `Skipped "${track.title}" (${SKIPPED_REASON_LABEL[track.reason]}).`;
+  }
+  return `Skipped ${tracks.length} unavailable tracks: ${tracks.map((t) => t.title).join(", ")}.`;
 }
 
 /**
@@ -13,16 +33,17 @@ function messageOf(err: unknown): string {
  * after each mutation, it never invents state Rust doesn't have.
  *
  * Position/duration are polled once a second while a track is loaded and
- * playing. Rust doesn't push playback events yet (see
+ * playing (Rust doesn't push exact sub-second position yet — see
  * `media::player`'s Fase 3 note on `observe_property`), so a modest poll
- * is the pragmatic stand-in — not the aggressive polling the project
+ * is the pragmatic stand-in there — not the aggressive polling the project
  * brief warns against, and it stops entirely while paused or idle.
  *
- * The one exception is a track finishing on its own: nothing here polls
- * the queue itself, so without a push from Rust the mini-player would
- * keep showing the just-finished track indefinitely (not just "for up to
- * a second") until some other user action happened to call
- * `refreshQueue()`. `api.onTrackAutoAdvanced` covers that one gap.
+ * Everything else that can change playback/queue state from outside this
+ * hook's own calls — a track finishing on its own, the tray menu, MPRIS/
+ * media keys — is pushed, not polled: `api.onPlaybackChanged` (queue +
+ * paused state) and `api.onTrackAutoAdvanced` (the one transition that
+ * additionally needs a local reset of position/paused before its own
+ * `playback-changed` arrives) cover that.
  */
 export function usePlayback() {
   const [queue, setQueue] = useState<QueueView>(EMPTY_QUEUE);
@@ -89,6 +110,57 @@ export function usePlayback() {
       unlisten?.();
     };
   }, [refreshQueue]);
+
+  // Rust pushes this on every playback/queue mutation, wherever it came
+  // from -- including outside the frontend's own IPC calls (tray menu,
+  // MPRIS/media keys), which otherwise wouldn't show up here until the
+  // next 1Hz poll (P1-1). The payload already carries the fresh queue and
+  // paused state, so this never needs a follow-up round-trip.
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+    (async () => {
+      const stop = await api.onPlaybackChanged((payload) => {
+        setQueue(payload.queue);
+        setIsPaused(payload.is_paused);
+        setQueueLoaded(true);
+      });
+      if (cancelled) {
+        stop();
+      } else {
+        unlisten = stop;
+      }
+    })();
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
+
+  // Rust pushes this whenever an advance had to skip one or more dead
+  // tracks (private/removed/region-blocked) -- the only feedback the user
+  // gets that something in their queue was silently dropped, including the
+  // case where nothing at all ended up playing. All skipped tracks from
+  // one advance arrive together in a single event, so this never spams one
+  // banner per track.
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+    (async () => {
+      const stop = await api.onTrackUnavailable((tracks) => {
+        if (tracks.length > 0) setError(trackUnavailableMessage(tracks));
+      });
+      if (cancelled) {
+        stop();
+      } else {
+        unlisten = stop;
+      }
+    })();
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
 
   // Seeds the volume slider from the last saved value -- runs once, same
   // reasoning as the queue's own initial-fetch effect above.
@@ -210,14 +282,25 @@ export function usePlayback() {
     }
   }, []);
 
-  const setVolume = useCallback(async (percent: number) => {
+  // Ref, not state -- this is a timer handle, not something that should
+  // ever trigger a re-render.
+  const volumePersistTimer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(volumePersistTimer.current), []);
+
+  const setVolume = useCallback((percent: number) => {
+    // Visual + mpv's real volume apply on every call, immediately -- only
+    // the SQLite write is debounced (P1-4). A drag fires this once per
+    // tick (~100 times), which would otherwise be ~100 SQLite writes.
     setVolumeState(percent);
-    try {
-      await api.setPlaybackVolume(percent);
-    } catch (err) {
-      setError(messageOf(err));
-    }
+    api.setPlaybackVolume(percent, false).catch((err) => setError(messageOf(err)));
+
+    window.clearTimeout(volumePersistTimer.current);
+    volumePersistTimer.current = window.setTimeout(() => {
+      api.setPlaybackVolume(percent, true).catch((err) => setError(messageOf(err)));
+    }, VOLUME_PERSIST_DEBOUNCE_MS);
   }, []);
+
+  const dismissError = useCallback(() => setError(null), []);
 
   return {
     queue,
@@ -229,7 +312,7 @@ export function usePlayback() {
     volume,
     setVolume,
     error,
-    dismissError: () => setError(null),
+    dismissError,
     refreshQueue,
     playPause,
     next,

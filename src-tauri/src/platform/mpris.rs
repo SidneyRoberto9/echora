@@ -9,22 +9,50 @@
 //! command functions the frontend calls, so playback logic is never
 //! duplicated.
 
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use mpris_server::{
     LoopStatus, Metadata, PlaybackRate, PlaybackStatus, PlayerInterface, Property, RootInterface,
     Server, Signal, Time, TrackId, Volume,
     zbus::{self, fdo},
 };
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 
 use crate::commands;
-use crate::models::Track;
+use crate::models::{QueueView, Track};
 use crate::state::AppState;
 
 pub type Handle = Arc<Server<MprisHandler>>;
 
 const BUS_NAME_SUFFIX: &str = "echora";
+
+/// Fires whenever `notify()` runs — i.e. on every playback/queue mutation,
+/// regardless of whether it came from the frontend's own IPC calls or from
+/// outside it (tray menu, MPRIS/media keys). The frontend's own IPC calls
+/// already update their local state optimistically, so for those this is
+/// a harmless, idempotent resync; for tray/MPRIS-triggered mutations it's
+/// the *only* way the UI finds out before the next poll (see P1-1).
+/// Payload carries the state `usePlayback` needs already computed, so the
+/// frontend never has to round-trip for it (`QueueView` is exactly what
+/// `get_queue` returns; `is_paused` covers what `get_playback_position`'s
+/// polling loop otherwise has to wait up to a second to discover).
+pub(crate) const PLAYBACK_CHANGED_EVENT: &str = "playback-changed";
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub(crate) struct PlaybackChangedPayload {
+    pub queue: QueueView,
+    pub is_paused: bool,
+}
+
+/// Set once at startup by `build()`, regardless of whether the MPRIS D-Bus
+/// server itself came up. `notify()` needs an `AppHandle` to emit
+/// `PLAYBACK_CHANGED_EVENT` to the frontend even on systems with no D-Bus
+/// session bus (MPRIS is best-effort there, but the frontend sync event
+/// must not be) — and `AppState` doesn't carry one (see its own doc
+/// comment on why). A global is the least invasive way to get one to
+/// `notify()` without threading an `AppHandle` through every playback
+/// command's signature.
+static APP_HANDLE: OnceLock<AppHandle> = OnceLock::new();
 
 pub struct MprisHandler {
     app: AppHandle,
@@ -35,6 +63,7 @@ pub struct MprisHandler {
 /// D-Bus session must not stop Echora from starting (stability over a
 /// nice-to-have desktop integration).
 pub async fn build(app: AppHandle) -> Option<Handle> {
+    let _ = APP_HANDLE.set(app.clone());
     match Server::new(BUS_NAME_SUFFIX, MprisHandler { app }).await {
         Ok(server) => Some(Arc::new(server)),
         Err(err) => {
@@ -47,24 +76,32 @@ pub async fn build(app: AppHandle) -> Option<Handle> {
 }
 
 /// Recomputes and pushes the properties that can change as a result of a
-/// playback/queue mutation, plus a `Seeked` signal — cheap and always safe to
-/// emit, and it's what tells desktop "now playing" widgets to resync their
-/// position instead of looking frozen. Best-effort: a failure here must never
-/// fail the playback command that triggered it.
+/// playback/queue mutation, plus a `Seeked` signal to MPRIS, and pushes
+/// `PLAYBACK_CHANGED_EVENT` to the frontend — cheap and always safe to call,
+/// and it's what tells both desktop "now playing" widgets and Echora's own
+/// UI to resync instead of looking frozen or stale. Best-effort throughout:
+/// a failure here must never fail the playback command that triggered it.
 pub async fn notify(state: &AppState) {
+    let queue = state.queue.lock().unwrap().view();
+    let playback_status = playback_status_for(state).await;
+
+    if let Some(app) = APP_HANDLE.get() {
+        let _ = app.emit(
+            PLAYBACK_CHANGED_EVENT,
+            PlaybackChangedPayload {
+                queue: queue.clone(),
+                is_paused: matches!(playback_status, PlaybackStatus::Paused),
+            },
+        );
+    }
+
     let Some(server) = state.mpris.as_ref() else {
         return;
     };
 
-    let (track, has_next, has_previous) = {
-        let queue = state.queue.lock().unwrap();
-        (
-            queue.current().cloned(),
-            !queue.upcoming().is_empty(),
-            queue.position().is_some_and(|p| p > 0),
-        )
-    };
-    let has_track = track.is_some();
+    let has_track = queue.current.is_some();
+    let has_next = !queue.upcoming.is_empty();
+    let has_previous = queue.position.is_some_and(|p| p > 0);
 
     let position = state
         .player
@@ -79,8 +116,8 @@ pub async fn notify(state: &AppState) {
 
     let _ = server
         .properties_changed([
-            Property::PlaybackStatus(playback_status_for(state).await),
-            Property::Metadata(track.as_ref().map(metadata_for).unwrap_or_default()),
+            Property::PlaybackStatus(playback_status),
+            Property::Metadata(queue.current.as_ref().map(metadata_for).unwrap_or_default()),
             Property::CanGoNext(has_next),
             Property::CanGoPrevious(has_previous),
             Property::CanPlay(has_track),

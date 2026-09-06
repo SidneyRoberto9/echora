@@ -87,6 +87,23 @@ export interface QueueView {
   position: number | null;
 }
 
+/** Payload of the `playback-changed` event — mirrors Rust's
+ * `platform::mpris::PlaybackChangedPayload`. */
+export interface PlaybackChangedPayload {
+  queue: QueueView;
+  is_paused: boolean;
+}
+
+export type SkippedTrackReason = "private" | "region_blocked" | "removed" | "unknown";
+
+/** One track that got skipped during a queue advance because it resolved
+ * as unavailable — mirrors Rust's `commands::queue::SkippedTrack`. */
+export interface SkippedTrack {
+  id: string;
+  title: string;
+  reason: SkippedTrackReason;
+}
+
 export interface Settings {
   cache_limit_mb: number;
   history_enabled: boolean;
@@ -165,6 +182,23 @@ export const api = {
   onTrackAutoAdvanced: (callback: () => void) =>
     listen("track-auto-advanced", () => callback()),
 
+  /** Fires on every playback/queue mutation, wherever it came from — the
+   * frontend's own IPC calls (already updated optimistically), the tray
+   * menu, or MPRIS/media keys. Carries the state Rust already computed so
+   * the frontend never needs a separate `getQueue`/poll round-trip just to
+   * find out what changed (P1-1: without this, tray/media-key play-pause
+   * only became visible on the next 1Hz poll). Mirrors Rust's
+   * `platform::mpris::PLAYBACK_CHANGED_EVENT`. */
+  onPlaybackChanged: (callback: (payload: PlaybackChangedPayload) => void) =>
+    listen<PlaybackChangedPayload>("playback-changed", (event) => callback(event.payload)),
+
+  /** Fires when one or more tracks got skipped during a queue advance
+   * because they resolved as unavailable (private/removed/region-blocked)
+   * — including the case where nothing at all ended up playing. Mirrors
+   * Rust's `commands::queue::TRACK_UNAVAILABLE_EVENT`. */
+  onTrackUnavailable: (callback: (tracks: SkippedTrack[]) => void) =>
+    listen<SkippedTrack[]>("track-unavailable", (event) => callback(event.payload)),
+
   /** Fires ~12x/sec with the current track's normalized audio level
    * (0..1) while the player screen can actually show it — Rust already
    * gates this off when paused, minimized, or unfocused, so the frontend
@@ -196,7 +230,12 @@ export const api = {
   pausePlayback: () => call<void>("pause_playback"),
   resumePlayback: () => call<void>("resume_playback"),
   seekPlayback: (seconds: number) => call<void>("seek_playback", { seconds }),
-  setPlaybackVolume: (volume: number) => call<void>("set_playback_volume", { volume }),
+  /** `persist: false` applies to mpv only (cheap, no SQLite write) — used
+   * for every tick of a volume slider drag. `persist: true` additionally
+   * saves the setting; the frontend debounces that to the trailing call
+   * once the drag stops (P1-4). See `set_playback_volume_impl`. */
+  setPlaybackVolume: (volume: number, persist: boolean) =>
+    call<void>("set_playback_volume", { volume, persist }),
   getPlaybackPosition: () => call<number | null>("get_playback_position"),
   getPlaybackDuration: () => call<number | null>("get_playback_duration"),
 };
