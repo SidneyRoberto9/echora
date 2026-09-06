@@ -33,10 +33,17 @@ function trackUnavailableMessage(tracks: SkippedTrack[]): string {
  * after each mutation, it never invents state Rust doesn't have.
  *
  * Position/duration are polled once a second while a track is loaded and
- * playing (Rust doesn't push exact sub-second position yet — see
- * `media::player`'s Fase 3 note on `observe_property`), so a modest poll
- * is the pragmatic stand-in there — not the aggressive polling the project
- * brief warns against, and it stops entirely while paused or idle.
+ * playing. Rust itself now observes both continuously over mpv's IPC
+ * connection (P2-1 — see `media::player`), but neither
+ * `get_playback_position`/`get_playback_duration` below nor this poll
+ * changed as part of that: they're already just in-process `Tauri::State`
+ * reads of Rust's own cache (no socket, effectively free), and pushing
+ * sub-second position to the frontend would mean extending
+ * `platform::mpris::PLAYBACK_CHANGED_EVENT`'s payload with a value that
+ * changes every tick — turning an event meant for actual state
+ * transitions into a de facto second poll, just renamed. A 1Hz pull from
+ * here is the simpler thing that does the same job, and it stops entirely
+ * while paused or idle.
  *
  * Everything else that can change playback/queue state from outside this
  * hook's own calls — a track finishing on its own, the tray menu, MPRIS/

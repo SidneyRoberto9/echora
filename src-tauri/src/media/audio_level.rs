@@ -14,6 +14,20 @@
 //! `tokio::time::Interval`'s period is fixed at construction (no public
 //! setter), so this uses two separate `Interval`s rather than
 //! reconfiguring one.
+//!
+//! `is_paused()` below is now a free, in-memory cache read (P2-1:
+//! `media::player` keeps one persistent IPC connection and observes
+//! `pause` on it), so this loop no longer opens a socket for that part of
+//! its gate check. `audio_level_db()`/`enable_level_metering()` are the
+//! one exception left — see their doc comments on `Player` for the real
+//! mpv behavior (confirmed empirically, not assumed) that keeps them on
+//! their own one-shot connection instead: querying
+//! `af-metadata/echora_level` on a connection that's carried other
+//! traffic reproducibly never gets a reply, even though a fresh
+//! connection per read works reliably at this same ~12.5Hz cadence. So
+//! this loop still opens one connection per active tick — just one
+//! instead of two (`is_paused` + `audio_level_db`), and zero instead of
+//! one while idle/paused.
 
 use std::time::Duration;
 
