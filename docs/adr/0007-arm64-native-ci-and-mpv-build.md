@@ -230,6 +230,200 @@ playback — Echora only ever loads real HTTP(S) media URLs via
 synthetic signal source would fail if ever run against a CI-built mpv
 instead of the system `mpv` package they currently rely on for local dev.
 
+## Update (2026-09-06): minimal custom FFmpeg replaces the distro's
+monolithic one — the "known, unresolved lightness cost" above is resolved
+Option (a) from that unresolved-cost note above was built:
+`scripts/build-ffmpeg.sh` (new) compiles FFmpeg `n6.1.6` from source with
+`--disable-everything`, then enables only the specific decoders,
+demuxers, protocols, and filters Echora's real playback path
+(`src-tauri/src/media/{resolver,metadata,player}.rs`) needs, plus a
+deliberate small margin — see that script's own comments for the full,
+grouped justification of every flag. `scripts/build-mpv.sh` builds this
+first, into a private prefix, and points mpv's meson build at it via
+`PKG_CONFIG_PATH` (searched before system pkgconfig dirs) instead of
+linking Ubuntu's `libavcodec60`/etc.
+
+**What's enabled and why, briefly** (full reasoning lives in
+`scripts/build-ffmpeg.sh`, not duplicated here so it can't drift out of
+sync with the actual flags): native decoders for opus/aac/vorbis/mp3/
+flac/pcm (bestaudio is Opus-in-WebM or AAC-in-MP4 in practice — confirmed
+against the real yt-dlp binary in this task; the rest is margin, all
+native FFmpeg code, no external codec libs at all); demuxers for the
+containers those arrive in, including `hls`; protocols http/https/tcp/
+tls/crypto; `avdevice` + the `lavfi` indev + `abuffer`/`abuffersink`/
+`astats`/`sine`/`aformat`/`aresample` filters (test-signal generation and
+the orb's RMS-metering filter, not real playback). No `--enable-gpl`,
+`--enable-nonfree`, ever.
+
+**Livestream decision, made explicit per this task's own instruction not
+to leave it implicit:** yt-dlp's `ytsearch` can return a currently-live
+stream (confirmed for real in this task — resolving
+`youtube.com/watch?v=rFZHOHl-L8A`, a live 24/7 lofi stream, via
+`yt-dlp -f bestaudio` returns `protocol=m3u8_native`, an HLS manifest, not
+a progressive URL). **Decided: support it.** Live ambient/lofi radio is
+exactly the content class a mood-first player exists for, and declining
+would silently break playback for anything `ytsearch` can return live.
+Cost: the `hls` demuxer (which force-selects `mpegts`/`mov` internally)
+plus the protocols already needed for the non-live case.
+
+**TLS backend: OpenSSL 3, not Mbed TLS.** Mbed TLS was the first choice —
+smallest (~0.9MB installed on Ubuntu 24.04: `libmbedtls14t64` +
+`libmbedcrypto7t64` + `libmbedx509-1t64` = 227+528+160KB via
+`apt-cache show`) and nominally Apache-2.0, self-contained, no transitive
+dependency chain. **Actually running `./configure --enable-mbedtls`
+against this build failed outright**: `mbedtls is version3 and
+--enable-version3 is not specified` — verified for real against the real
+`libmbedtls-dev 2.28.8` in Ubuntu 24.04's own repos (not a newer-mbedtls-
+only edge case; FFmpeg's `configure` hard-codes `mbedtls` into
+`EXTERNAL_LIBRARY_VERSION3_LIST` unconditionally, for any version,
+reflecting the FSF's own position that Apache-2.0 is GPLv3/LGPLv3-
+compatible but *not* GPLv2/LGPLv2.1-compatible). Passing
+`--enable-version3` would have "fixed" the build error but upgraded
+*this entire FFmpeg build* from LGPL-2.1-or-later to LGPL-3.0-or-later as
+a build-wide condition — the exact same category of license escalation
+GnuTLS's GPL/LGPL-3.0-licensed GMP dependency was already rejected for,
+just via a different, non-obvious mechanism only the real build attempt
+surfaced. OpenSSL ≥3.0.0 hits a different branch of that same configure
+check that does *not* require `--enable-version3` when `--enable-gpl` is
+absent (confirmed by reading the condition directly:
+`enabled gplv3 || ! enabled gpl || enabled nonfree || die ...`), so it's
+the Apache-2.0 backend that actually keeps this build at
+LGPL-2.1-or-later. Measured cost: `libssl3t64`'s 6615KB installed vs.
+Mbed TLS's ~915KB — paid gladly to avoid the license escalation. GnuTLS
+remains rejected for its own, separate reason (GMP).
+
+**Real before/after measurement, this task, same environment (Ubuntu
+24.04 x86_64, in a Docker container mirroring `ci.yml`'s
+`package-smoke-test` prerequisites exactly, including the pre-existing
+system `libavcodec-dev` et al. left installed specifically to prove
+`PKG_CONFIG_PATH` wins over them):**
+
+| | Before (system FFmpeg) | After (minimal custom FFmpeg) |
+|---|---|---|
+| Bundled library count | 170 | 52 |
+| Bundled `lib/` size | 219MB (229,303,560 bytes) | 33MB (34,474,768 bytes) |
+
+**`scripts/build-mpv.sh` now asserts this itself, every run, not just
+once:** after `meson compile`, it resolves mpv's own `libavcodec.so` via
+`ldd`, fails the build if that path isn't under the FFmpeg prefix just
+built (the exact "PKG_CONFIG_PATH lost to the system copy" failure mode
+this whole change exists to prevent), and separately fails if that
+resolved `libavcodec` itself pulls in any GPL/nonfree codec lib
+(`libx264`/`libx265`/`libvpx`/`libaom`/`libdav1d`/`librav1e`) that a
+`--disable-everything` build can never legitimately have.
+
+**Clean-container smoke test re-run with the new bundle:** same
+methodology as the "Verified for real" paragraph above (bare
+`ubuntu:24.04`, only `libasound2t64`/`libpulse0` installed, no `-dev`
+packages) — `ldd` reports zero "not found", `mpv --version` runs, real
+WAV playback (`--ao=null`) exits 0. Negative control repeated too:
+deleting the bundled `libplacebo.so.338` before the same check correctly
+reproduces the exact failure and non-zero exit.
+
+**`astats` proof — the single highest-stakes check in this whole
+change, since a build missing it doesn't fail loudly, it just kills the
+orb's audio reactivity at runtime.** Drove the new mpv binary over its
+own JSON IPC socket with the exact command sequence
+`media/player.rs::enable_level_metering`/`audio_level_db` use: loaded
+`av://lavfi:sine=frequency=440:duration=10` (proving the `lavfi` indev +
+`sine` filter, enabled specifically so `player.rs`'s `#[ignore]`d smoke
+tests can finally run against a CI-built mpv instead of only the system
+package — this also resolves this ADR's own previously "separately
+noticed, not fixed" `libavdevice` gap; the built `avdevice` reports
+version `60.3.100`, satisfying mpv's own minimum exactly), ran
+`af add @echora_level:lavfi=[astats=metadata=1:reset=1]`, then
+`get_property af-metadata/echora_level`. Real reply:
+`lavfi.astats.Overall.RMS_level: "-21.014229"` (string-typed, exactly as
+`player.rs`'s own comment describes) — a real, finite RMS value, not a
+build that merely compiles.
+
+**https proof:** resolved a real, live YouTube video via the real
+`yt-dlp`/Deno binaries in `src-tauri/binaries/dev/` (`-f bestaudio` →
+`acodec=opus, ext=webm, protocol=https`, a real `googlevideo.com` URL),
+loaded it into the new mpv over IPC, and confirmed `time-pos` advancing
+against a real wall clock with `duration` matching yt-dlp's own reported
+`19.021`s exactly.
+
+**HLS livestream proof (the deliberate decision above, verified, not
+just decided):** resolved the same live lofi stream
+(`rFZHOHl-L8A`) yt-dlp's `flat-playlist` fixture already uses in this
+project's own tests, got a real `m3u8_native` manifest URL, loaded it
+into the new mpv, and confirmed `time-pos` starts advancing from a real
+live HLS stream.
+
+**Smaller, separate, *not* acted on in this change — flagged, not
+fixed:** roughly 2.9MB of the 33MB bundle (`libsndfile`, `libFLAC`,
+`libvorbis`/`libvorbisenc`, `libopus`, `libogg`, `libmpg123`,
+`libmp3lame`) is reachable only via PulseAudio's own private
+`libpulsecommon-16.1.so` plugin (confirmed via `readelf -d`: none of
+Echora's own libavcodec/libass/libplacebo need any of them) — the exact
+same "PulseAudio's own version-pinned private plugin, don't bundle a
+copy that could drift" situation this ADR already excludes
+`libpulsecommon` itself for, just one hop further down that plugin's own
+dependency graph, currently un-excluded. A real system with PulseAudio
+installed already has these via `libpulse0`'s own apt `Depends` chain,
+making Echora's bundled copies redundant. Out of this change's scope
+(the task was FFmpeg's own codec/protocol footprint, not PulseAudio's) —
+noted for a future, separate pass over `build-mpv.sh`'s exclude list.
+
+**AppImage soname-collision risk — open, not resolved by this change,
+and not silently assumed safe.** This ADR's own "AppImage: verified
+working, but with a caveat worth tracking" note (above) already recorded
+that `linuxdeploy` rewrites mpv's rpath from `$ORIGIN/../lib/echora/lib`
+to its own flat `$ORIGIN/../lib`, where it separately auto-bundles *its
+own* copies of the same sonames (`libavcodec.so.60` et al.) for
+WebKitGTK/GStreamer's own use — and explicitly flagged that the two
+copies being identical was "coincidental, not structurally guaranteed."
+With a minimal custom FFmpeg, that coincidence is gone for good: the two
+copies are now definitely *not* identical, and whichever one
+`linuxdeploy` actually places at that shared path is invisible from the
+outside (mpv still starts either way — only its actual codec/library
+footprint differs). Two real failure modes: mpv silently gets the full
+system copy (this task's size win doesn't actually ship), or
+WebKitGTK/GStreamer silently gets the minimal copy (missing codecs they
+expect, breaking something unrelated and hard to trace back to this
+change). **Not verified in this task's environment**: building the real
+signed AppImage via `tauri-action`/`cargo tauri build` requires
+`TAURI_SIGNING_PRIVATE_KEY`, which this task's environment doesn't have
+access to (it's a CI secret) — attempted a local build to check this
+directly and it did not complete in the time available; see this task's
+own report for exactly what was and wasn't reached. **What resolves this
+gap:** `.github/workflows/ci.yml`'s `package-smoke-test` job now has a
+dedicated step, `Smoke test the AppImage's mpv against the wrong FFmpeg
+(soname-collision check)`, that extracts the real built AppImage
+(`--appimage-extract`, no FUSE needed) and fails the job if the AppImage's
+`mpv` resolves a `libavcodec` that pulls in any GPL/nonfree codec lib a
+minimal build can't have (`libx264`/`libx265`/`libvpx`/`libaom`/
+`libdav1d`/`librav1e`) — the same decisive signature used to verify the
+`.deb` path above. That job is gated to `workflow_dispatch`/the weekly
+`schedule` (real packaging is expensive), so this will get a real answer
+the next time it runs, on a runner with the signing secret available —
+until then, treat this as an open risk, not a closed one.
+
+**LGPL §6 corresponding-source obligation, now Echora's to carry
+directly:** building FFmpeg from source instead of redistributing
+Ubuntu's own `.deb` packages removes the transitivity that used to
+satisfy this (Canonical hosting the source package). `release.yml` now
+uploads, per release, per architecture: the exact pinned tag (via the
+same `grep` pattern already used for mpv/yt-dlp/Deno), an unmodified
+source mirror (`git archive` of that exact tag, generated by
+`scripts/build-ffmpeg.sh` itself), and the exact `./configure` line used
+(also generated by that script, from the same array it actually invokes
+`./configure` with — never hand-copied elsewhere, so it can't silently
+drift from what was actually built).
+
+## Update (2026-09-06): ARM64 dropped from the CI/release matrix
+No ARM users. `ci.yml`'s `build`/`package-smoke-test` jobs and
+`release.yml`'s `release` job all had their `arm64`/`aarch64`
+(`ubuntu-24.04-arm`) matrix entries removed, leaving a single `x86_64`
+entry — the matrix structure itself (and every script's
+`<target-triple>` parameterization) is untouched, so bringing ARM64 back
+is re-adding one matrix entry per workflow (each removal is commented
+in-place with the exact entry to restore), not rewriting the pipeline.
+Everything above in this ADR about *how* to build mpv/FFmpeg for ARM64
+(native runner, no cross-compilation, no QEMU) remains accurate if/when
+that entry comes back.
+
 ## Consequences
 - mpv becomes a build artifact Echora's own CI produces and
   checksum-tracks per release, not a binary fetched from a third party —

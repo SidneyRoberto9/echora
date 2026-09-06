@@ -7,11 +7,14 @@ maintainer explicitly requests a change.
 ## Platform & distribution
 
 - Linux only for v1 (Ubuntu/Zorin-based). No Windows/macOS yet.
-- Architectures: `x86_64` and `ARM64`.
+- Architectures: `x86_64` only. ARM64 was dropped on 2026-09-06 — no
+  ARM users to serve, and the ARM leg was never actually verified on a
+  runner. The build scripts stay architecture-parameterized, so this
+  comes back by re-adding the matrix entry when someone asks for it.
 - "Zero install" means a genuinely self-contained package: no
   dependency on the user running `apt install` for anything Echora
   needs, beyond installing Echora's own package.
-- Distribution formats: both `.deb` and AppImage, for both architectures.
+- Distribution formats: both `.deb` and AppImage.
 - Auto-update ships in v1 (Tauri's official updater plugin, signed
   releases; the private signing key is never committed).
 
@@ -80,8 +83,7 @@ validated.
 
 ## Known risks, tracked (not blockers)
 
-- A genuinely self-contained mpv binary doesn't exist upstream for
-  either architecture — Echora builds it from source in CI per
-  architecture instead. See `docs/adr/0007-arm64-native-ci-and-mpv-build.md`.
-- ARM64 AppImage tooling doesn't cross-compile — mitigated with
-  GitHub-hosted native `ubuntu-24.04-arm` runners.
+- A genuinely self-contained mpv binary doesn't exist upstream, so
+  Echora builds it from source in CI. See
+  `docs/adr/0007-arm64-native-ci-and-mpv-build.md` — that ADR also
+  records why the ARM64 half of it is no longer built.

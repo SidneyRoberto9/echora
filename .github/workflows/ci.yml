@@ -69,9 +69,12 @@ jobs:
           - arch: x86_64
             runner: ubuntu-24.04
             triple: x86_64-unknown-linux-gnu
-          - arch: arm64
-            runner: ubuntu-24.04-arm
-            triple: aarch64-unknown-linux-gnu
+          # ARM64 removed 2026-09-06: no ARM users, see
+          # docs/adr/0007-arm64-native-ci-and-mpv-build.md's "Update
+          # (2026-09-06): ARM64 dropped". To bring it back, re-add:
+          #   - arch: arm64
+          #     runner: ubuntu-24.04-arm
+          #     triple: aarch64-unknown-linux-gnu
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -124,9 +127,12 @@ jobs:
           - arch: x86_64
             runner: ubuntu-24.04
             triple: x86_64-unknown-linux-gnu
-          - arch: aarch64
-            runner: ubuntu-24.04-arm
-            triple: aarch64-unknown-linux-gnu
+          # ARM64 removed 2026-09-06: no ARM users, see
+          # docs/adr/0007-arm64-native-ci-and-mpv-build.md's "Update
+          # (2026-09-06): ARM64 dropped". To bring it back, re-add:
+          #   - arch: aarch64
+          #     runner: ubuntu-24.04-arm
+          #     triple: aarch64-unknown-linux-gnu
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -135,12 +141,19 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
             libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev xdg-utils
-      - name: Install mpv build prerequisites
+      - name: Install mpv + FFmpeg build prerequisites
         # Mirrors release.yml's package list — keep the two in sync.
+        # No libav*-dev/libsw*-dev here: scripts/build-ffmpeg.sh builds
+        # its own minimal FFmpeg from source instead of linking the
+        # distro's monolithic one (see docs/adr/0007's 2026-09-06
+        # update). nasm speeds up the codecs actually enabled; libssl-dev
+        # is FFmpeg's https TLS backend (see scripts/build-ffmpeg.sh for
+        # why OpenSSL, not Mbed TLS/GnuTLS). libplacebo-dev/libass-dev/
+        # libasound2-dev/libpulse-dev remain: mpv itself needs them
+        # regardless of FFmpeg's own footprint.
         run: |
-          sudo apt-get install -y meson ninja-build patchelf pkg-config \
-            libavcodec-dev libavfilter-dev libavformat-dev libavutil-dev \
-            libswresample-dev libswscale-dev libplacebo-dev libass-dev \
+          sudo apt-get install -y meson ninja-build patchelf pkg-config nasm \
+            libssl-dev libplacebo-dev libass-dev \
             libasound2-dev libpulse-dev
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
@@ -194,4 +207,57 @@ jobs:
             fi
             echo "--- mpv --version ---"
             /usr/bin/mpv --version
+          '
+      - name: Smoke test the AppImage's mpv against the wrong FFmpeg (soname-collision check)
+        # OPEN RISK this check exists to catch, not a settled-safe case
+        # — see docs/adr/0007-arm64-native-ci-and-mpv-build.md's
+        # "AppImage soname-collision risk" (2026-09-06). `linuxdeploy`
+        # (Tauri's AppImage bundler) separately auto-bundles *its own*
+        # copies of the same sonames (libavcodec.so.60 et al.) flat into
+        # the AppImage's usr/lib/, for WebKitGTK/GStreamer's own use, and
+        # rewrites mpv's rpath to point there too — outside
+        # scripts/build-mpv.sh's control entirely, since that happens
+        # later, inside tauri-action's own bundling step. Before this
+        # project minimized FFmpeg, both copies were byte-identical
+        # Ubuntu apt packages, so it didn't matter which one mpv actually
+        # got. Now they are not identical, and whichever wins is
+        # invisible from the outside (mpv still starts either way) unless
+        # checked directly: our minimal libavcodec was built with
+        # --disable-everything, so it can never have a NEEDED entry on
+        # any GPL/nonfree codec lib Ubuntu's full package always carries
+        # (libx264/libx265/libvpx/libaom/libdav1d/librav1e) — if the
+        # AppImage's mpv resolves to a libavcodec that DOES pull one of
+        # those in, the full system copy won instead of ours.
+        run: |
+          set -euo pipefail
+          APPIMAGE_PATH="$(find src-tauri/target/release/bundle/appimage -name '*.AppImage' -print -quit)"
+          if [ -z "$APPIMAGE_PATH" ]; then
+            echo "no .AppImage found under src-tauri/target/release/bundle/appimage" >&2
+            exit 1
+          fi
+          chmod +x "$APPIMAGE_PATH"
+          docker run --rm -v "$PWD/$APPIMAGE_PATH:/echora.AppImage:ro" ubuntu:24.04 bash -c '
+            set -euo pipefail
+            apt-get update -qq
+            apt-get install -y -qq file >/dev/null
+            cp /echora.AppImage /tmp/echora.AppImage
+            chmod +x /tmp/echora.AppImage
+            cd /tmp
+            ./echora.AppImage --appimage-extract >/dev/null
+            echo "--- ldd squashfs-root/usr/bin/mpv ---"
+            if ldd squashfs-root/usr/bin/mpv | grep -q "not found"; then
+              echo "MISSING LIBRARIES in AppImage mpv:" >&2
+              ldd squashfs-root/usr/bin/mpv | grep "not found" >&2
+              exit 1
+            fi
+            LIBAVCODEC="$(ldd squashfs-root/usr/bin/mpv | awk "/libavcodec\.so/ {print \$3}")"
+            echo "AppImage mpv resolves libavcodec to: $LIBAVCODEC"
+            echo "--- ldd on that libavcodec (soname-collision check) ---"
+            ldd "$LIBAVCODEC"
+            if ldd "$LIBAVCODEC" | grep -qE "libx264|libx265|libvpx|libaom|libdav1d|librav1e"; then
+              echo "SONAME COLLISION: the AppImage'"'"'s mpv is linked against the FULL system FFmpeg, not the minimal build -- see ADR 0007" >&2
+              exit 1
+            fi
+            echo "--- mpv --version (from inside the AppDir) ---"
+            LD_LIBRARY_PATH=squashfs-root/usr/lib squashfs-root/usr/bin/mpv --version
           '

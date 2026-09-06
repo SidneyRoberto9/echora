@@ -75,7 +75,7 @@ No Electron. No embedded YouTube web UI. No extra WebViews.
 
 ## Platforms
 
-Linux only for v1 (Ubuntu/Zorin-based), `x86_64` and `ARM64`, as `.deb`
+Linux only for v1 (Ubuntu/Zorin-based), `x86_64`, as `.deb`
 and AppImage. Fully self-contained: no manual `apt install mpv`,
 `pip install yt-dlp`, or any runtime install is ever asked of the user —
 everything Echora needs ships inside its own package.

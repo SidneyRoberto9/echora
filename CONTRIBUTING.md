@@ -47,7 +47,7 @@ the repo root:
 ./scripts/stub-sidecar-binaries.sh x86_64-unknown-linux-gnu src-tauri/binaries
 ```
 
-On ARM64, use `aarch64-unknown-linux-gnu` instead. This is exactly what
+This is exactly what
 CI runs before its own fmt/clippy/test/build steps (see
 `.github/workflows/ci.yml`). The placeholders are no-op stand-ins — that's
 enough because none of the commands below actually execute the sidecars;

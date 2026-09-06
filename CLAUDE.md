@@ -1,7 +1,7 @@
 # Echora — Project Instructions
 
 Mood-first, ultra-lightweight desktop audio player. Linux only (Ubuntu/
-Zorin-based), x86_64 + ARM64. Tauri 2 + React + TypeScript + Rust + MPV
+Zorin-based), x86_64 only. Tauri 2 + React + TypeScript + Rust + MPV
 (sidecar) + yt-dlp (sidecar). See `docs/adr/` for why each dependency
 exists and `docs/REQUIREMENTS_FREEZE.md` for the locked product decisions.
 
