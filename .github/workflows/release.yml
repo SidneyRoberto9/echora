@@ -7,6 +7,13 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+# Third-party actions below are pinned to a commit SHA, not a mutable
+# tag, so a compromised or force-moved tag upstream can't silently swap
+# in different code on a future run. Each SHA was resolved from the
+# real tag via the GitHub API on 2026-09-06 (the tag name kept in the
+# trailing comment for readability); re-resolve and update the comment
+# together when deliberately bumping an action's version.
+
 jobs:
   release:
     name: Release (${{ matrix.arch }})
@@ -24,7 +31,7 @@ jobs:
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Verify tag matches tauri.conf.json version
         run: |
@@ -48,14 +55,14 @@ jobs:
             libswresample-dev libswscale-dev libplacebo-dev libass-dev \
             libasound2-dev libpulse-dev
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: src-tauri
 
@@ -67,7 +74,7 @@ jobs:
       - name: Fetch yt-dlp/Deno
         run: ./scripts/fetch-sidecar-binaries.sh ${{ matrix.arch }} ${{ matrix.triple }} src-tauri/binaries
 
-      - uses: tauri-apps/tauri-action@v1
+      - uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -78,3 +85,16 @@ jobs:
           releaseDraft: false
           prerelease: false
           uploadUpdaterJson: true
+
+      - name: Record bundled sidecar versions
+        run: |
+          {
+            echo "mpv:    $(grep -oP 'MPV_VERSION="\K[^"]+' scripts/build-mpv.sh)"
+            echo "yt-dlp: $(grep -oP 'YT_DLP_VERSION="\K[^"]+' scripts/fetch-sidecar-binaries.sh)"
+            echo "deno:   $(grep -oP 'DENO_VERSION="\K[^"]+' scripts/fetch-sidecar-binaries.sh)"
+          } | tee "sidecar-versions-${{ matrix.arch }}.txt"
+
+      - name: Attach sidecar versions to the release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${{ github.ref_name }}" "sidecar-versions-${{ matrix.arch }}.txt" --clobber
