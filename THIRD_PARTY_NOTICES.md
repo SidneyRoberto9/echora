@@ -39,6 +39,12 @@ the "Open item" in `docs/adr/0007-arm64-native-ci-and-mpv-build.md`.
 | **Deno** | JS runtime required by yt-dlp's EJS mechanism (YouTube anti-bot/signature challenges), invoked by yt-dlp itself via `--js-runtimes deno:<path>`. Validated in dev at version `2.9.6` (official release zip). | MIT | Official prebuilt `deno` binary, unmodified, checksum-verified. | Ship Deno's MIT license/copyright notice. |
 | **PO-Token provider** (e.g. `bgutil-ytdlp-pot-provider`) | Would supply YouTube PO-Tokens to yt-dlp. **Not currently bundled or needed** — plain Deno via `--js-runtimes` resolved all public-video test cases in Fase 3 without one. Revisit only if resolution failures in the wild indicate YouTube is enforcing PO-Tokens for the videos Echora needs. | N/A — not shipped | N/A | If ever added: confirm its license, and prefer its Deno mode over Node to avoid bundling a second JS runtime. |
 
+## Bundled fonts
+
+| Component | License | Verdict | Obligation |
+|---|---|---|---|
+| **Sora** (variable font, v17, self-hosted `public/fonts/sora-latin.woff2` — UI typeface for all app text; weights 400/500/600/700 share one variable-font file, matching how Google's own css2 API serves it; no `fonts.googleapis.com`/`fonts.gstatic.com` request at runtime, see `docs/DESIGN.md`) | SIL Open Font License 1.1 | **SAFE** — OFL §2 explicitly permits bundling/redistributing the unmodified Font Software alongside any other software, including proprietary software. Unlike GPL/AGPL, OFL §5's "distributed entirely under this license" language binds only the Font Software itself, not an application that merely renders text with it — no copyleft obligation reaches Echora's own source. The `.woff2` file is used unmodified, so the Reserved Font Name restriction in OFL §3 does not apply (Sora does not declare an RFN). Not sold by itself, satisfying OFL §1. | Ship the upstream copyright notice (`Copyright 2019 The Sora Project Authors (https://github.com/sora-xor/sora-font)`) and the full OFL 1.1 text with every distributed copy (OFL §2) — done via the same `include_str!` pattern as the other bundled licenses, reachable in-app via Settings → Third-Party Licenses (`src-tauri/src/licenses.rs`). Do not modify the `.woff2` file: subsetting/modifying would create a "Modified Version" under OFL, still permitted but requiring re-registration/re-review here. |
+
 ## External APIs queried at runtime (not bundled)
 
 | Service | Role | License/Terms | Data handling | Obligation |

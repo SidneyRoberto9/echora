@@ -38,6 +38,11 @@ pub fn all() -> Vec<LicenseEntry> {
             license: "MPL-2.0",
             text: include_str!("../resources/licenses/MPL-2.0.txt"),
         },
+        LicenseEntry {
+            component: "Sora (font)",
+            license: "OFL-1.1",
+            text: include_str!("../resources/licenses/sora-OFL.txt"),
+        },
     ]
 }
 
@@ -58,6 +63,7 @@ mod tests {
                 "yt-dlp (bundled binary)",
                 "Deno",
                 "Rust dependencies (MPL-2.0)",
+                "Sora (font)",
             ]
         );
         for entry in &entries {
@@ -82,5 +88,21 @@ mod tests {
             .unwrap();
         assert!(bundled.text.contains("GNU GENERAL PUBLIC LICENSE"));
         assert!(bundled.text.contains("Version 3"));
+    }
+
+    #[test]
+    fn sora_font_entry_is_ofl_and_carries_upstream_copyright() {
+        let entries = all();
+
+        let sora = entries
+            .iter()
+            .find(|e| e.component == "Sora (font)")
+            .unwrap();
+        assert_eq!(sora.license, "OFL-1.1");
+        assert!(
+            sora.text
+                .contains("Copyright 2019 The Sora Project Authors")
+        );
+        assert!(sora.text.contains("SIL OPEN FONT LICENSE"));
     }
 }
