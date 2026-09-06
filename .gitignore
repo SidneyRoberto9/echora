@@ -36,6 +36,8 @@ Cargo.lock.bak
 # App runtime data (local dev only)
 *.sqlite
 *.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
 *.db
 
 # Secrets — never commit

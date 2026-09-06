@@ -31,10 +31,37 @@ pub(crate) fn now() -> i64 {
         .as_secs() as i64
 }
 
+/// `journal_mode` is one of the few PRAGMAs that always returns the
+/// resulting mode as a row, even in its "set" form (`PRAGMA journal_mode =
+/// WAL`) — a bare `conn.execute(...)` errors with `ExecuteReturnedResults`
+/// wherever the `extra_check` feature is on. `pragma_update_and_check` is
+/// rusqlite's purpose-built method for this: it sets the value and reads
+/// the row back via `query_row` in one call, so we can also confirm what
+/// mode SQLite actually landed on.
+///
+/// WAL is persisted in the database file itself, not per-connection, and
+/// cuts fsyncs per write — `record_play` runs on every track and settings
+/// writes can burst (e.g. a debounced volume slider), so this matters for
+/// the "lightness" priority. `synchronous = NORMAL` is WAL's recommended
+/// pairing (safe against app crashes, only loses durability on an OS
+/// crash/power loss, which this desktop player doesn't need to guard).
+///
+/// `:memory:` connections (test-only) can't use WAL — SQLite has nowhere
+/// to put a WAL file — and silently stay on `"memory"` instead of
+/// erroring, so we don't assert the returned mode, only propagate a real
+/// failure.
+fn configure_pragmas(conn: &Connection) -> Result<()> {
+    conn.execute("PRAGMA foreign_keys = ON", [])?;
+    let _journal_mode: String =
+        conn.pragma_update_and_check(None, "journal_mode", "WAL", |row| row.get(0))?;
+    conn.pragma_update(None, "synchronous", "NORMAL")?;
+    Ok(())
+}
+
 impl Db {
     pub fn open(path: &str) -> Result<Self> {
         let mut conn = Connection::open(path)?;
-        conn.execute("PRAGMA foreign_keys = ON", [])?;
+        configure_pragmas(&conn)?;
         migrations().to_latest(&mut conn)?;
         Ok(Db { conn })
     }
@@ -44,7 +71,7 @@ impl Db {
     #[cfg(test)]
     pub fn open_in_memory() -> Result<Self> {
         let mut conn = Connection::open_in_memory()?;
-        conn.execute("PRAGMA foreign_keys = ON", [])?;
+        configure_pragmas(&conn)?;
         migrations().to_latest(&mut conn)?;
         Ok(Db { conn })
     }
@@ -97,5 +124,39 @@ mod tests {
         Db::open(path).expect("second open should succeed");
 
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn open_enables_wal_journal_mode_on_a_real_file() {
+        // P2-14: a file-backed database must actually land on WAL, not just
+        // attempt it — `pragma_update` alone would silently accept whatever
+        // mode SQLite picked.
+        let dir = std::env::temp_dir().join(format!("echora-wal-test-{}", now()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("echora.sqlite");
+        let path = path.to_str().unwrap();
+
+        let db = Db::open(path).unwrap();
+        let journal_mode: String = db
+            .conn
+            .pragma_query_value(None, "journal_mode", |r| r.get(0))
+            .unwrap();
+        assert_eq!(journal_mode, "wal");
+
+        drop(db);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn open_in_memory_does_not_fail_even_though_it_cannot_use_wal() {
+        // SQLite keeps `:memory:` connections on the "memory" journal mode
+        // regardless of what we ask for; `configure_pragmas` must treat
+        // that as success, not an error to propagate or panic on.
+        let db = Db::open_in_memory().expect("in-memory open must not fail over WAL");
+        let journal_mode: String = db
+            .conn
+            .pragma_query_value(None, "journal_mode", |r| r.get(0))
+            .unwrap();
+        assert_eq!(journal_mode, "memory");
     }
 }
