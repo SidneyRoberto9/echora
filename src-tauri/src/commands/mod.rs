@@ -125,20 +125,24 @@ pub(crate) async fn record_current_completion(state: &AppState) -> Result<()> {
         return Ok(());
     };
 
-    let elapsed = state
-        .player
-        .lock()
-        .await
-        .position_seconds()
-        .await
-        .unwrap_or(None);
-    let duration = state
-        .player
-        .lock()
-        .await
-        .duration_seconds()
-        .await
-        .unwrap_or(None);
+    // Privacy gate: "Save listening history" off means nothing gets
+    // written, full stop — checked before touching the player at all, so
+    // disabling it also skips the two mpv round-trips below (P1-2).
+    if !state.db.lock().unwrap().get_settings()?.history_enabled {
+        return Ok(());
+    }
+
+    // Both reads in one lock acquisition: between two separate `lock()`
+    // calls mpv can unload the track (e.g. it just hit end-of-file),
+    // turning `duration` into `None` and `completion` into `None` — which
+    // `Db::listening_stats` then reads back as zero seconds listened for
+    // a play that actually completed (P2-4).
+    let (elapsed, duration) = {
+        let mut player = state.player.lock().await;
+        let elapsed = player.position_seconds().await.unwrap_or(None);
+        let duration = player.duration_seconds().await.unwrap_or(None);
+        (elapsed, duration)
+    };
     let completion = match (elapsed, duration) {
         (Some(e), Some(d)) if d > 0.0 => Some((e / d).clamp(0.0, 1.0)),
         _ => None,
@@ -169,4 +173,86 @@ pub(crate) async fn start_session_and_play(
         resolve_and_load(app, state, &track).await?;
     }
     Ok(session)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::Db;
+    use crate::media::player::Player;
+    use crate::media::resolver::{Resolver, ResolverConfig};
+    use crate::moods::MoodCatalog;
+    use crate::queue::Queue;
+    use std::path::PathBuf;
+    use std::sync::Mutex;
+    use std::time::Duration;
+
+    fn track(id: &str) -> Track {
+        Track {
+            id: id.into(),
+            title: id.into(),
+            artist: None,
+            duration_seconds: None,
+            thumbnail_url: None,
+        }
+    }
+
+    fn test_state() -> AppState {
+        AppState {
+            db: Mutex::new(Db::open_in_memory().unwrap()),
+            queue: Mutex::new(Queue::new()),
+            moods: MoodCatalog::load().unwrap(),
+            resolver: Resolver::new(ResolverConfig {
+                deno_path: PathBuf::from("deno"),
+                timeout: Duration::from_secs(30),
+            }),
+            prefetch: crate::media::prefetch::Prefetch::new(),
+            player: tokio::sync::Mutex::new(Player::new(
+                PathBuf::from("/tmp/echora-test-commands-mod-unused.sock"),
+                std::env::temp_dir(),
+                std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            )),
+            mpris: None,
+            sponsorblock_segments: Mutex::new(Vec::new()),
+            app_dir: std::env::temp_dir(),
+            crash_reporting_enabled: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        }
+    }
+
+    /// The player is never started here (no mpv socket to connect to), so
+    /// `position_seconds`/`duration_seconds` both fail and fall back to
+    /// `None` -- exercising `record_current_completion` without needing a
+    /// live sidecar, same as `playback::tests::test_state`.
+    #[tokio::test]
+    async fn record_current_completion_is_a_noop_when_history_disabled() {
+        let state = test_state();
+        {
+            let db = state.db.lock().unwrap();
+            let mut settings = db.get_settings().unwrap();
+            settings.history_enabled = false;
+            db.save_settings(&settings).unwrap();
+            db.start_session(&[("villain".to_string(), 100)]).unwrap();
+        }
+        state.queue.lock().unwrap().add_candidates([track("a")]);
+
+        record_current_completion(&state).await.unwrap();
+
+        let sessions = state.db.lock().unwrap().list_sessions(10, 0).unwrap();
+        assert_eq!(sessions[0].track_count, 0);
+    }
+
+    #[tokio::test]
+    async fn record_current_completion_writes_when_history_enabled() {
+        let state = test_state();
+        {
+            let db = state.db.lock().unwrap();
+            db.start_session(&[("villain".to_string(), 100)]).unwrap();
+        }
+        state.queue.lock().unwrap().add_candidates([track("a")]);
+
+        record_current_completion(&state).await.unwrap();
+
+        let sessions = state.db.lock().unwrap().list_sessions(10, 0).unwrap();
+        assert_eq!(sessions[0].track_count, 1);
+    }
 }
