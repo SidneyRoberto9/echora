@@ -124,6 +124,31 @@ cp build/mpv "$OUT_DIR/mpv-$TARGET_TRIPLE"
 #    SONAME dependency) — bundling a copy that could drift from whatever
 #    pulseaudio package is actually installed would be worse than
 #    relying on libpulse0's own apt dependency to keep them matched.
+#  - libFLAC/libsndfile/libvorbis(enc)/libopus/libogg/libmpg123/
+#    libmp3lame: not mpv's or FFmpeg's own dependency at all. Verified by
+#    reading `objdump -p`'s direct NEEDED entries (not `ldd`'s transitive
+#    closure, which is what originally hid this) for every .so this
+#    script bundles: none of libavcodec/libavformat/libavfilter/
+#    libavutil/libavdevice/libswresample/libswscale/libass/libplacebo/
+#    mpv itself reference any of these seven, directly or transitively.
+#    The only thing that needs them is libpulsecommon (specifically via
+#    libsndfile, its own sample-cache file-format reader), which is
+#    already excluded above — so bundling this chain without the one
+#    thing that would ever load it is dead weight, not a real runtime
+#    dependency (confirmed for real in this task: `objdump -p` on the
+#    built libpulsecommon-16.1.so shows `NEEDED libsndfile.so.1`, and
+#    libsndfile.so.1 in turn NEEDS all seven of these). ~2.9MB.
+#    ponytail: excluded by name, same style as the entries above, not by
+#    walking the dependency graph and stopping at excluded nodes (which
+#    would auto-track any future PulseAudio codec addition instead of
+#    needing a manual update here). If a future PulseAudio version adds
+#    another transitive codec dependency, it would silently get bundled
+#    again — a size regression, not a correctness one, since nothing
+#    bundled would ever load it either; the clean-container smoke test
+#    below stays green either way. Upgrade path if that drift starts
+#    mattering: replace this flat `ldd | grep -v` pipeline with a BFS
+#    over each file's direct NEEDED entries that doesn't recurse into an
+#    excluded node.
 #
 # Previously (system FFmpeg, before this task's change): 170 libraries,
 # ~220MB, verified for real on Ubuntu 24.04 x86_64. With the minimal
@@ -136,11 +161,49 @@ cp build/mpv "$OUT_DIR/mpv-$TARGET_TRIPLE"
 # `package-smoke-test` job re-proves this on every run rather than
 # trusting this comment to stay true across mpv/FFmpeg/Ubuntu version
 # bumps.
-EXCLUDE_LIBS='/lib(c|m|stdc\+\+|gcc_s|pthread|dl|rt)\.so|/libasound\.so|/libpulse\.so|/libpulsecommon-[0-9.]+\.so'
+EXCLUDE_LIBS='/lib(c|m|stdc\+\+|gcc_s|pthread|dl|rt)\.so|/libasound\.so|/libpulse\.so|/libpulsecommon-[0-9.]+\.so|/lib(FLAC|sndfile|vorbis|vorbisenc|opus|ogg|mpg123|mp3lame)\.so'
 ldd "$OUT_DIR/mpv-$TARGET_TRIPLE" \
   | awk '/=> \// {print $3}' \
   | grep -Ev "$EXCLUDE_LIBS" \
   | xargs -I{} cp --update=none {} "$OUT_DIR/lib/"
+
+# Every bundled .so also gets its own rpath, not just mpv itself below --
+# this is the fix for a real soname collision this task reproduced, not a
+# defensive guess. Root cause: only mpv (below) used to get patchelf'd; a
+# library like libavformat.so.60 (which itself directly NEEDs
+# libavcodec.so.60 -- confirmed via `objdump -p`) shipped with *no* rpath
+# of its own. At real *runtime*, that was invisible: when the dynamic
+# loader starts mpv directly, mpv's own DT_RPATH is legacy/global and
+# applies to resolving every transitive dependency too, including
+# libavformat.so.60's own need for libavcodec.so.60 -- confirmed for real,
+# a clean `ubuntu:24.04` container with none of this bundled elsewhere
+# resolved and ran mpv correctly even before this fix. But `linuxdeploy`
+# (Tauri's AppImage bundler) does its own, separate ELF dependency walk to
+# decide what to copy into the AppImage, and does not replicate that
+# legacy "executable's DT_RPATH is global" nuance for every node it
+# visits: it resolves each *library's own* NEEDED entries using that
+# library's own (empty) rpath, which falls through to the plain system
+# search path -- and copies whatever it finds there. On a build machine
+# that happens to also have the real libavcodec60 installed (this task
+# reproduced it with `gstreamer1.0-libav`, which pulls it in as a runtime
+# dependency, but *any* other reason it is installed would trigger the
+# exact same failure), linuxdeploy's own walk of libavformat.so.60 found
+# and bundled the FULL system libavcodec.so.60 into the AppImage's flat
+# usr/lib/ instead of ours -- verified for real in this task with a real
+# linuxdeploy run: usr/lib/libavformat.so.60 was correctly ours, but the
+# separately-resolved usr/lib/libavcodec.so.60 that dependency walk
+# dropped in was the system one (`ldd` on it showed libx264/libx265/
+# libvpx/libaom/libdav1d/librav1e -- a --disable-everything build can
+# never have those).
+# Giving every bundled library an explicit $ORIGIN rpath removes the
+# "empty rpath falls through to the system path" condition this exploits,
+# regardless of which tool (the real dynamic loader, or linuxdeploy's own
+# walker) is doing the resolving, or in what order. Re-verified for real
+# after this fix, same repro: the flat usr/lib/libavcodec.so.60 linuxdeploy
+# produces is statically-linked-nothing-GPL, i.e. ours (see CI's
+# `package-smoke-test` job for the automated version of this same check).
+find "$OUT_DIR/lib" -maxdepth 1 -name '*.so*' -type f -print0 \
+  | xargs -0 -I{} patchelf --force-rpath --set-rpath '$ORIGIN' {}
 
 # LGPL §6 corresponding-source obligation for the FFmpeg build above (see
 # scripts/build-ffmpeg.sh) -- copied out of $WORK_DIR before it's wiped by
@@ -159,19 +222,20 @@ cp "$FFMPEG_PREFIX/echora-ffmpeg-source.tar.gz" "$OUT_DIR/ffmpeg-source.tar.gz"
 # the legacy DT_RPATH tag (not DT_RUNPATH) so this wins over the AppImage
 # AppRun's LD_LIBRARY_PATH for mpv specifically.
 #
-# OPEN RISK, not fixed by this script (see ADR 0007's 2026-09-06 update,
-# "AppImage soname-collision risk"): linuxdeploy still separately
-# auto-bundles *its own*, unrelated copies of the same sonames
-# (libavcodec.so.60 et al.) flat under the AppImage's usr/lib/, for
-# WebKitGTK/GStreamer's own use -- and rewrites mpv's rpath again, to
-# that flat dir, during its own relocation pass, *after* this script has
-# already run. Before this task, that was harmless (both copies were
-# byte-identical Ubuntu apt packages). With this task's minimal FFmpeg,
-# they are no longer identical, and this script has no visibility into,
-# or control over, what linuxdeploy decides to place at that shared path
-# -- that step happens later, in `cargo tauri build`/tauri-action, outside
-# this script entirely. CI's `package-smoke-test` job checks the built
-# AppImage specifically for this.
+# AppImage soname-collision risk (see ADR 0007's 2026-09-06 updates):
+# linuxdeploy rewrites this rpath again, to its own flat usr/lib/ (where it
+# also independently decides what else lands, e.g. WebKitGTK/GStreamer's
+# own real dependencies) during its own relocation pass, *after* this
+# script has already run -- so this script has no direct control over
+# what ends up at that final shared path, only over what each individual
+# file it hands linuxdeploy resolves *its own* dependencies against (see
+# the per-library rpath loop above, which is what actually closes this
+# for real: linuxdeploy's own dependency walk of each library now finds
+# our sibling copies via that library's own $ORIGIN rpath, not the system
+# search path, regardless of what else linuxdeploy separately decides to
+# place alongside them). CI's `package-smoke-test` job re-verifies this on
+# every real build rather than relying on this reasoning staying true
+# across mpv/linuxdeploy/Ubuntu version bumps.
 patchelf --force-rpath --set-rpath "\$ORIGIN/../lib/echora/lib" "$OUT_DIR/mpv-$TARGET_TRIPLE"
 
 echo "Built $OUT_DIR/mpv-$TARGET_TRIPLE"

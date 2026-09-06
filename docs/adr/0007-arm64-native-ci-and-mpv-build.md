@@ -424,6 +424,217 @@ Everything above in this ADR about *how* to build mpv/FFmpeg for ARM64
 (native runner, no cross-compilation, no QEMU) remains accurate if/when
 that entry comes back.
 
+## Update (2026-09-06): AppImage soname-collision risk — closed, and it was a real, different bug than assumed
+
+The "AppImage soname-collision risk" flagged as open above was closed this
+task by actually provoking it, not by re-reasoning about it — and the real
+mechanism turned out to be a different bug than the one this ADR had been
+tracking.
+
+**What this ADR had assumed, and why it was incomplete.** The open risk
+above was framed as: `linuxdeploy` deliberately bundles its own copy of
+`libavcodec.so.60` et al. for WebKitGTK/GStreamer's own use, and that copy
+might win the shared `usr/lib/` path instead of Echora's minimal one.
+Reading `tauri-bundler`'s actual AppImage source
+(`crates/tauri-bundler/src/bundle/linux/appimage/linuxdeploy.rs`, fetched
+and read directly in this task, not assumed) shows this only happens when
+`bundle.linux.appimage.bundleMediaFramework` is `true` in
+`tauri.conf.json` — Tauri only passes `--plugin gstreamer` to `linuxdeploy`
+in that case, and that plugin is the *only* thing that copies GStreamer's
+real `libgstlibav.so` (the actual file with a direct dependency on
+`libavcodec.so.60`) into the AppDir. Echora's `tauri.conf.json` has no
+`appimage` key at all, so this defaults to `false` — confirmed by reading
+`tauri-utils`' `AppImageConfig` derive (`#[derive(Default)]`, field
+defaults to `false`) and grepping this repo for `bundleMediaFramework`
+(zero matches anywhere). A real `linuxdeploy` repro built in this task
+(below) confirms: with `--plugin gtk` only, matching Echora's real config,
+no `libgstlibav.so` and no second `libavcodec.so.60` source ever entered
+the AppDir, gstreamer1.0-libav installed on the build machine or not.
+
+**The real bug: `linuxdeploy`'s own dependency walk doesn't inherit rpath
+the way the real dynamic loader does.** `scripts/build-mpv.sh` only ever
+ran `patchelf --force-rpath` on the top-level `mpv` binary — none of the
+`.so` files it bundles alongside it (`libavformat.so.60`, which itself has
+a *direct* `NEEDED` entry on `libavcodec.so.60` — confirmed via
+`objdump -p`, not assumed) carried any rpath of their own. At real
+runtime this was invisible: when the actual dynamic loader starts `mpv`
+directly, `mpv`'s own `DT_RPATH` (legacy, not `DT_RUNPATH` — chosen
+specifically so it wins over `LD_LIBRARY_PATH`) is process-global and also
+governs resolving `libavformat.so.60`'s own transitive need for
+`libavcodec.so.60`, so a rpath-less `libavformat.so.60` still resolved
+correctly. But `linuxdeploy`'s own internal ELF dependency walker (used to
+decide what to copy into the AppImage) does not replicate that "legacy
+`DT_RPATH` on the executable is global" behavior for every node it visits
+— it resolves each *library's own* `NEEDED` entries using that library's
+own (empty) rpath, which falls straight through to the plain system
+library search path. On any build machine that happens to also have the
+real `libavcodec60` package installed for *any* reason —
+`gstreamer1.0-libav` (installed deliberately in this task's CI change to
+make this reproducible; it pulls `libavcodec60` in as a real, direct `apt`
+dependency, confirmed via `apt-cache policy`/`dpkg -l`) is one path, but
+not the only conceivable one — `linuxdeploy`'s walk of
+`libavformat.so.60` finds and bundles the *system's* `libavcodec.so.60`
+into the AppImage's flat `usr/lib/` instead of Echora's own.
+
+**Reproduced for real, twice — once showing the bug, once showing the
+fix, using the real `scripts/build-ffmpeg.sh` + `scripts/build-mpv.sh`
+output, a real downloaded `linuxdeploy` + the same `linuxdeploy-plugin-gtk`
+fork Tauri itself uses, and a real `WebKitWebProcess`/`WebKitNetworkProcess`
+pair copied into the AppDir the same way `tauri-bundler`'s own
+`appimage.rs` does it** (all in a scratch Docker container, no bind mount
+of this repository — see this task's own report for the exact commands):
+- **Before the fix** (only `mpv` patchelf'd, matching this ADR's state
+  before this update): the AppImage's `usr/lib/libavformat.so.60` was
+  correctly Echora's own minimal build, but the separately-resolved
+  `usr/lib/libavcodec.so.60` it required was the *system* one — `ldd` on
+  it showed `libx264.so.164`, `libx265.so.199`, `libvpx.so.9`,
+  `libaom.so.3`, `libdav1d.so.7`, `librav1e.so.0`, none of which a
+  `--disable-everything` build can ever have. The minimal-FFmpeg size win
+  silently would not have shipped.
+- **After the fix**: `scripts/build-mpv.sh` now also runs
+  `patchelf --force-rpath --set-rpath '$ORIGIN'` on every bundled `.so`
+  file, not just `mpv` — so each one explicitly finds its siblings
+  wherever it actually ends up (`usr/lib/echora/lib/` for the `.deb`,
+  `linuxdeploy`'s flattened `usr/lib/` for the AppImage), regardless of
+  which tool, in what order, resolves its dependencies. Same repro,
+  same real `linuxdeploy` run: the flat `usr/lib/libavcodec.so.60`
+  resolves to a file whose own `ldd` shows only
+  `libswresample`/`libavutil`/`libm`/`libc`/`libcrypto` — none of the
+  GPL/nonfree codec libs. Re-verified the `.deb`-equivalent layout
+  (`usr/lib/echora/lib/`, `mpv`'s own original rpath) still resolves
+  cleanly and plays real audio after this change — the per-file rpath
+  addition doesn't affect that path, since `$ORIGIN` for each file still
+  means "wherever I am," which is the same directory either way.
+
+**CI now proves this on every real build, decisively, not just by
+starting the AppImage.** `.github/workflows/ci.yml`'s
+`package-smoke-test` job's AppImage step now:
+1. Installs `gstreamer1.0-libav` on the build runner specifically to keep
+   this provoked, not just currently-not-triggered — confirmed absent
+   from the `ubuntu-24.04` GitHub-hosted runner by default (not in
+   `actions/runner-images`' own Ubuntu 24.04 installed-software manifest;
+   `packages.ubuntu.com` shows it's only a `Suggests` of
+   `libwebkit2gtk-4.1-0`, which `apt-get install` never pulls in either
+   way).
+2. Extracts the real built AppImage and resolves `mpv`'s real
+   `libavcodec.so`, then asserts it has none of
+   `libx264`/`libx265`/`libvpx`/`libaom`/`libdav1d`/`librav1e` (catches
+   "the system copy won").
+3. Separately scans every ELF file in the extracted AppDir for a *direct*
+   `NEEDED` entry (`objdump -p`, not `ldd`'s transitive closure — `ldd`
+   would falsely flag Echora's own `libavformat.so.60`/`libavdevice.so.60`,
+   which legitimately link `libavcodec.so.60` internally) on
+   `libavcodec.so`, and asserts the only matches are `mpv`,
+   `libavformat.so*`, and `libavdevice.so*` (catches "something other than
+   mpv depends on whichever copy won the shared path" — the leak
+   direction).
+4. Both directions were verified to actually fail when provoked, not just
+   to pass: check 2 was run for real against a deliberately
+   `bundleMediaFramework`-equivalent (`--plugin gstreamer`) AppImage build
+   and correctly flagged `libgstlibav.so` (and, transitively, a real
+   system `libavfilter.so.9` it pulled in) as unexpected consumers; check
+   1 was run for real against the pre-fix build above and correctly
+   failed with the exact GPL-codec message.
+
+**A second, unrelated, pre-existing CI bug found and fixed while
+verifying this for real.** The AppImage step's original blanket
+`ldd ... | grep "not found"` check (written but never actually run against
+a real AppImage before this task, per this ADR's own prior "Not verified
+in this task's environment" note) would have failed on *every* real run,
+for reasons that have nothing to do with FFmpeg: `linuxdeploy`'s AppImage
+convention does not carry every one of `build-mpv.sh`'s own bundled
+libraries into the flattened `usr/lib/` — it drops X11, fontconfig,
+freetype, harfbuzz, fribidi, and ALSA, on the assumption a real Linux
+desktop already provides them (the same "assumed present on the target"
+convention this project already relies on explicitly for ALSA/PulseAudio
+via `deb.depends`, just with no AppImage equivalent of `deb.depends` to
+declare it). Confirmed for real: a bare `ubuntu:24.04` container with only
+`file`/`binutils` installed reported over a dozen "not found" libraries
+unrelated to this task, and the original check would exit non-zero before
+ever reaching the actual FFmpeg-focused checks. Rescoped to only fail on
+the libraries `build-mpv.sh` itself is responsible for bundling
+(`libav*`/`libsw*`/`libpostproc`/`libass`/`libplacebo`/`libssl`/
+`libcrypto`); the informational final `mpv --version` line is no longer
+fatal for the same reason.
+
+**Not independently re-verified in this task: a real, signed
+`tauri-action`/`cargo tauri build` run on GitHub's actual
+`ubuntu-24.04` runner.** Everything above was built and verified with the
+real `scripts/build-ffmpeg.sh` + `scripts/build-mpv.sh` output, the real
+`linuxdeploy` binary and `linuxdeploy-plugin-gtk` script Tauri itself
+downloads and runs, and a real `WebKitWebProcess`/`WebKitNetworkProcess`
+pair, in a scratch Docker container matching Ubuntu 24.04 — not inside an
+actual `cargo tauri build`/`tauri-action` invocation, since that still
+needs `TAURI_SIGNING_PRIVATE_KEY` (a CI secret unavailable in this
+environment) end-to-end plus a full frontend+Rust build this task's time
+budget did not cover. `.github/workflows/ci.yml`'s `package-smoke-test`
+job (`workflow_dispatch`/weekly `schedule`) is what closes that specific
+remaining gap the next time it runs for real.
+
+## Update (2026-09-06): ~2.9MB PulseAudio-only codec chain, excluded
+
+The "smaller, separate, not acted on" note above (roughly 2.9MB of
+`libsndfile`/`libFLAC`/`libvorbis`/`libvorbisenc`/`libopus`/`libogg`/
+`libmpg123`/`libmp3lame`, reachable only via PulseAudio's own
+already-excluded `libpulsecommon`) was investigated for real, not just
+excluded on the same reasoning as before.
+
+**Investigated the actual reachability path, per this task's own
+instruction not to just trust the prior note.** Built the real
+`libpulsecommon-16.1.so` (from `libpulse-dev`, the same package this
+project's own build prerequisites already install) and read its *direct*
+`NEEDED` entries with `objdump -p` (not `ldd`'s transitive closure, which
+is what hid this the first time): it directly needs `libsndfile.so.1`,
+which in turn directly needs all seven of the others
+(`libFLAC`/`libvorbis`/`libvorbisenc`/`libopus`/`libogg`/`libmpg123`/
+`libmp3lame`). Then scanned every `.so` `scripts/build-mpv.sh` actually
+bundles (the real output of a from-source build in this task, not the
+prior task's numbers) for a direct `NEEDED` entry on any of those seven:
+none of `libavcodec`/`libavformat`/`libavfilter`/`libavutil`/
+`libavdevice`/`libswresample`/`libswscale`/`libass`/`libplacebo`/`mpv`
+itself reference any of them, directly or transitively. The only thing
+that ever needs this chain is `libpulsecommon`, which `EXCLUDE_LIBS`
+already excludes from bundling — so bundling the chain without the one
+thing that would ever load it was genuinely dead weight, not a
+correctness risk.
+
+**Fix:** `scripts/build-mpv.sh`'s `EXCLUDE_LIBS` now also excludes these
+seven libraries by name, with the reachability proof recorded in that
+script's own comment (including the `ponytail`-flagged tradeoff: excluding
+by name rather than by a dependency-graph walk that stops at excluded
+nodes means a *future* PulseAudio version adding another transitive codec
+dependency would silently get bundled again — a size regression, not a
+correctness one, since the clean-container smoke test stays green either
+way regardless).
+
+**Verified for real, before and after, same build, same environment**
+(the per-file-rpath fix above was applied first, so these numbers already
+include it):
+
+| | Before (chain bundled) | After (chain excluded) |
+|---|---|---|
+| Bundled library count | 54 | 46 |
+| Bundled `lib/` size | 35,036,160 bytes (~33.4MB) | 32,110,312 bytes (~30.6MB) |
+
+(~2.79MB removed, matching the prior task's ~2.9MB estimate closely.)
+These counts run slightly higher than the 52-file/34,474,768-byte number
+recorded in the update above — this task's build environment is a scratch
+Docker container approximating `ci.yml`'s prerequisites, not a byte-for-
+byte match of the GitHub-hosted `ubuntu-24.04` runner, so a few
+incidentally-different transitive packages (e.g. `libvulkan.so.1`,
+`libX11-xcb.so.1`) shifted the baseline slightly; the before/after *delta*
+from the same environment is the number that matters here, and CI's own
+`package-smoke-test` job re-measures the real number on the real runner
+every time it runs.
+
+**Clean-container smoke test re-run after the exclusion, same methodology
+as every prior pass in this ADR** (bare `ubuntu:24.04`, only
+`libasound2t64`/`libpulse0` installed, no `-dev` packages): `ldd` reports
+zero "not found" (the seven excluded libraries resolve through
+`libpulse0`'s own real `apt` dependency chain instead, exactly as
+reasoned), `mpv --version` runs, and real WAV playback
+(`--ao=null`, a `sox`-generated sine wave) exits 0.
+
 ## Consequences
 - mpv becomes a build artifact Echora's own CI produces and
   checksum-tracks per release, not a binary fetched from a third party —
