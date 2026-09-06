@@ -108,13 +108,17 @@ impl Db {
             ));
         }
 
-        self.conn.execute(
-            "UPDATE sessions SET ended_at = ?1 WHERE ended_at IS NULL",
-            [now()],
-        )?;
-
+        // Ending the previous session and starting the new one must commit
+        // or roll back together — otherwise a failure partway through (e.g.
+        // the loop below) can end the previous session with no replacement,
+        // leaving the database with no open session and no way to recover
+        // without manual intervention (P2-13).
         let started_at = now();
         let tx = self.conn.unchecked_transaction()?;
+        tx.execute(
+            "UPDATE sessions SET ended_at = ?1 WHERE ended_at IS NULL",
+            [started_at],
+        )?;
         tx.execute(
             "INSERT INTO sessions (started_at) VALUES (?1)",
             [started_at],
@@ -222,7 +226,12 @@ impl Db {
     }
 
     /// Upserts the track and records it as played at `position` within
-    /// `session_id`.
+    /// `session_id`. Both writes run in one transaction — the same defect
+    /// as `start_session` (P2-13) applied here too: `self.upsert_track`
+    /// commits on `self.conn` immediately, so if the play insert failed
+    /// afterward the track upsert would already be permanent on its own.
+    /// Same reason `save_scene` duplicates the upsert SQL against `tx`
+    /// instead of calling `self.upsert_track` (see its comment).
     pub fn record_play(
         &self,
         session_id: i64,
@@ -230,16 +239,36 @@ impl Db {
         position: u32,
         completion_pct: Option<f64>,
     ) -> Result<()> {
-        self.upsert_track(track)?;
-        self.conn.execute(
+        let played_at = now();
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute(
+            "INSERT INTO tracks (id, title, artist, duration_seconds, thumbnail_url, first_seen_at, last_seen_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)
+             ON CONFLICT(id) DO UPDATE SET
+                title = excluded.title,
+                artist = excluded.artist,
+                duration_seconds = excluded.duration_seconds,
+                thumbnail_url = excluded.thumbnail_url,
+                last_seen_at = excluded.last_seen_at",
+            rusqlite::params![
+                track.id,
+                track.title,
+                track.artist,
+                track.duration_seconds,
+                track.thumbnail_url,
+                played_at,
+            ],
+        )?;
+        tx.execute(
             "INSERT INTO session_tracks (session_id, position, track_id, played_at, completion_pct)
              VALUES (?1, ?2, ?3, ?4, ?5)
              ON CONFLICT(session_id, position) DO UPDATE SET
                 track_id = excluded.track_id,
                 played_at = excluded.played_at,
                 completion_pct = excluded.completion_pct",
-            rusqlite::params![session_id, position, track.id, now(), completion_pct],
+            rusqlite::params![session_id, position, track.id, played_at, completion_pct],
         )?;
+        tx.commit()?;
         Ok(())
     }
 }
@@ -479,5 +508,66 @@ mod tests {
 
         let current = db.current_session().unwrap().unwrap();
         assert_eq!(current.moods.len(), 2);
+    }
+
+    #[test]
+    fn start_session_rolls_back_atomically_if_the_transaction_fails() {
+        // P2-13: ending the previous session and inserting the new one must
+        // be one atomic unit. Prove it by forcing the transaction's later
+        // write (the `session_moods` insert) to fail and checking the
+        // previous session is still open — before the fix, the `UPDATE`
+        // ran outside the transaction and had already committed by the
+        // time this failure happened, leaving no session open at all.
+        let db = Db::open_in_memory().unwrap();
+        let first = db.start_session(&single("villain")).unwrap();
+
+        db.conn.execute("DROP TABLE session_moods", []).unwrap();
+
+        let result = db.start_session(&single("focus"));
+        assert!(result.is_err());
+
+        let ended_at: Option<i64> = db
+            .conn
+            .query_row(
+                "SELECT ended_at FROM sessions WHERE id = ?1",
+                [first.id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(
+            ended_at.is_none(),
+            "previous session must still be open after a failed start_session"
+        );
+
+        let session_count: i64 = db
+            .conn
+            .query_row("SELECT COUNT(*) FROM sessions", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(session_count, 1, "no partial new session should exist");
+    }
+
+    #[test]
+    fn record_play_rolls_back_the_track_upsert_if_the_play_insert_fails() {
+        // Same defect, found in this method too: the track upsert and the
+        // play insert must commit or roll back together. Force the second
+        // write to fail and confirm the upsert wasn't left committed alone.
+        let db = Db::open_in_memory().unwrap();
+        let session = db.start_session(&single("villain")).unwrap();
+
+        db.conn.execute("DROP TABLE session_tracks", []).unwrap();
+
+        let result = db.record_play(session.id, &track("a"), 0, Some(1.0));
+        assert!(result.is_err());
+
+        let track_count: i64 = db
+            .conn
+            .query_row("SELECT COUNT(*) FROM tracks WHERE id = 'a'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(
+            track_count, 0,
+            "track upsert must roll back with the failed play insert"
+        );
     }
 }
