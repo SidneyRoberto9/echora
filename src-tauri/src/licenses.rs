@@ -43,6 +43,24 @@ pub fn all() -> Vec<LicenseEntry> {
             license: "OFL-1.1",
             text: include_str!("../resources/licenses/sora-OFL.txt"),
         },
+        // Linked by the mpv sidecar, never by Echora's own binary, and
+        // built by our own CI rather than taken from Ubuntu -- which is
+        // what makes shipping this text our obligation instead of
+        // Canonical's. See scripts/build-ffmpeg.sh; the matching source
+        // tarball and configure line ship as release assets.
+        LicenseEntry {
+            component: "FFmpeg",
+            license: "LGPL-2.1-or-later",
+            text: include_str!("../resources/licenses/ffmpeg-LICENSE.LGPLv2.1.txt"),
+        },
+        // TLS backend for FFmpeg's https protocol handler, so mpv can
+        // fetch the resolved stream URL itself. Bundled as a runtime
+        // dependency of the mpv sidecar.
+        LicenseEntry {
+            component: "OpenSSL",
+            license: "Apache-2.0",
+            text: include_str!("../resources/licenses/openssl-LICENSE.Apache-2.0.txt"),
+        },
     ]
 }
 
@@ -64,6 +82,8 @@ mod tests {
                 "Deno",
                 "Rust dependencies (MPL-2.0)",
                 "Sora (font)",
+                "FFmpeg",
+                "OpenSSL",
             ]
         );
         for entry in &entries {
@@ -73,6 +93,18 @@ mod tests {
                 entry.component
             );
         }
+    }
+
+    #[test]
+    fn ffmpeg_entry_carries_the_lgpl_not_the_gpl() {
+        let entries = all();
+        let ffmpeg = entries.iter().find(|e| e.component == "FFmpeg").unwrap();
+
+        assert_eq!(ffmpeg.license, "LGPL-2.1-or-later");
+        // The whole point of building without --enable-gpl/--enable-version3:
+        // catch a build that silently escalated to a stricter license.
+        assert!(ffmpeg.text.contains("GNU LESSER GENERAL PUBLIC LICENSE"));
+        assert!(ffmpeg.text.contains("Version 2.1, February 1999"));
     }
 
     #[test]
