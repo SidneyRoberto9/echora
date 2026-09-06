@@ -41,6 +41,18 @@ fn get_third_party_licenses() -> Vec<licenses::LicenseEntry> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // Must be the first plugin registered: it needs to intercept a
+        // second launch (and re-focus the existing window) before any
+        // other setup runs — otherwise a relaunch spawns a second mpv
+        // sidecar, a second SQLite connection, and steals the MPRIS bus
+        // name from the first instance.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_autostart::Builder::new().build())
         .plugin(tauri_plugin_updater::Builder::new().build())
