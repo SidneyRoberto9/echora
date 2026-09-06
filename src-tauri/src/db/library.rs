@@ -109,7 +109,8 @@ impl Db {
     /// see `media::metadata::classify_ytdlp_failure`) — called from
     /// `commands::queue::advance_and_play` when an advance skips past a
     /// track that failed to resolve, so it doesn't keep getting offered as
-    /// a mood candidate (see `mood_engine::candidates::filter_out_unavailable`).
+    /// a mood candidate (see `mood_engine::candidates::filter_out_unavailable`, fed by
+    /// `Db::all_unavailable_track_ids`).
     pub fn mark_track_unavailable(&self, track_id: &str, reason: &str) -> Result<()> {
         self.conn.execute(
             "INSERT INTO track_unavailable (track_id, reason, marked_at) VALUES (?1, ?2, ?3)
@@ -216,9 +217,9 @@ mod tests {
     #[test]
     fn marking_a_track_unavailable_is_queryable() {
         let db = Db::open_in_memory().unwrap();
-        assert!(!db.is_track_unavailable("a").unwrap());
+        assert!(db.all_unavailable_track_ids().unwrap().is_empty());
 
         db.mark_track_unavailable("a", "region_blocked").unwrap();
-        assert!(db.is_track_unavailable("a").unwrap());
+        assert!(db.all_unavailable_track_ids().unwrap().contains("a"));
     }
 }

@@ -42,14 +42,18 @@ pub fn build_scoring_context(db: &Db, recent_session_window: i64) -> Result<Scor
         recently_played: db.recently_played_track_ids(recent_session_window)?,
         avg_completion: db.avg_completion_by_track()?,
         liked_artist_counts: db.liked_artist_counts()?,
+        unavailable_tracks: db.all_unavailable_track_ids()?,
     })
 }
 
 /// The core mood-engine flow, mix-aware: splits the round's query budget
 /// across 1-3 moods proportional to weight (see
-/// `candidates::query_counts_for_weights`), searches, dedups, scores,
-/// shuffles. Same partial-failure rule as before: the last error is
-/// propagated only if every query across every mood in the mix failed.
+/// `candidates::query_counts_for_weights`), searches, dedups, drops
+/// tracks already known unavailable (see `ScoringContext::unavailable_tracks`),
+/// scores, shuffles. Same partial-failure rule as before: the last error is
+/// propagated only if every query across every mood in the mix failed —
+/// a mood whose results are entirely filtered out as unavailable simply
+/// contributes zero candidates, not an error.
 pub async fn generate_mixed_candidates<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
     moods: &[(&Mood, u8)],
@@ -79,14 +83,26 @@ pub async fn generate_mixed_candidates<R: tauri::Runtime>(
         return Err(err);
     }
 
+    Ok(rank_candidates(raw, ctx, rng))
+}
+
+/// The pure, network-free tail of `generate_mixed_candidates`: dedup, drop
+/// known-unavailable tracks, score and shuffle. Split out so this logic is
+/// unit-testable without spawning the yt-dlp sidecar (see the `#[ignore]`d
+/// smoke test below for the full-flow, real-network coverage).
+fn rank_candidates(raw: Vec<Track>, ctx: &ScoringContext, rng: &mut impl Rng) -> Vec<Track> {
     let deduped = candidates::dedup(raw);
-    Ok(scoring::shuffle_by_score(deduped, ctx, rng))
+    let available =
+        candidates::filter_out_unavailable(deduped, |id| ctx.unavailable_tracks.contains(id));
+    scoring::shuffle_by_score(available, ctx, rng)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::models::Track;
+    use rand::SeedableRng;
+    use rand::rngs::StdRng;
 
     fn track(id: &str) -> Track {
         Track {
@@ -103,10 +119,12 @@ mod tests {
         let db = Db::open_in_memory().unwrap();
         db.set_track_feedback(&track("liked"), true).unwrap();
         db.favorite_track(&track("fav")).unwrap();
+        db.mark_track_unavailable("dead", "region_blocked").unwrap();
 
         let ctx = build_scoring_context(&db, 5).unwrap();
         assert_eq!(ctx.feedback.get("liked"), Some(&true));
         assert!(ctx.favorited_tracks.contains("fav"));
+        assert!(ctx.unavailable_tracks.contains("dead"));
     }
 
     #[test]
@@ -116,6 +134,33 @@ mod tests {
         assert!(ctx.feedback.is_empty());
         assert!(ctx.favorited_tracks.is_empty());
         assert!(ctx.recently_played.is_empty());
+        assert!(ctx.unavailable_tracks.is_empty());
+    }
+
+    #[test]
+    fn rank_candidates_drops_tracks_marked_unavailable() {
+        let mut ctx = ScoringContext::default();
+        ctx.unavailable_tracks.insert("dead".into());
+        let raw = vec![track("alive"), track("dead")];
+        let mut rng = StdRng::seed_from_u64(1);
+
+        let result = rank_candidates(raw, &ctx, &mut rng);
+
+        let ids: Vec<_> = result.iter().map(|t| t.id.as_str()).collect();
+        assert_eq!(ids, vec!["alive"]);
+    }
+
+    #[test]
+    fn rank_candidates_keeps_everything_when_nothing_is_unavailable() {
+        let ctx = ScoringContext::default();
+        let raw = vec![track("a"), track("b"), track("c")];
+        let mut rng = StdRng::seed_from_u64(1);
+
+        let result = rank_candidates(raw, &ctx, &mut rng);
+
+        let mut ids: Vec<_> = result.iter().map(|t| t.id.as_str()).collect();
+        ids.sort();
+        assert_eq!(ids, vec!["a", "b", "c"]);
     }
 }
 

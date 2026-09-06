@@ -27,6 +27,21 @@ impl Db {
             .map_err(Into::into)
     }
 
+    /// All track ids ever marked unavailable (see `Db::mark_track_unavailable`),
+    /// fetched once per candidate round rather than once per candidate — the
+    /// same bulk-lookup pattern as `all_favorited_track_ids` above, backed by
+    /// `track_unavailable`'s `track_id` primary key so no extra index is
+    /// needed. Table only grows on a confirmed-dead resolve, so it stays
+    /// small relative to a listener's actual history.
+    pub fn all_unavailable_track_ids(&self) -> Result<HashSet<String>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT track_id FROM track_unavailable")?;
+        let rows = stmt.query_map([], |row| row.get(0))?;
+        rows.collect::<rusqlite::Result<HashSet<_>>>()
+            .map_err(Into::into)
+    }
+
     /// Distinct tracks played across the most recent `session_limit`
     /// sessions (any mood) — used to penalize repetition.
     pub fn recently_played_track_ids(&self, session_limit: i64) -> Result<HashSet<String>> {
@@ -106,6 +121,17 @@ mod tests {
         let favorited = db.all_favorited_track_ids().unwrap();
         assert!(favorited.contains("fav"));
         assert!(!favorited.contains("not-fav"));
+    }
+
+    #[test]
+    fn all_unavailable_track_ids_lists_only_marked_tracks() {
+        let db = Db::open_in_memory().unwrap();
+        db.upsert_track(&track("still-good", None)).unwrap();
+        db.mark_track_unavailable("dead", "region_blocked").unwrap();
+
+        let unavailable = db.all_unavailable_track_ids().unwrap();
+        assert!(unavailable.contains("dead"));
+        assert!(!unavailable.contains("still-good"));
     }
 
     #[test]

@@ -50,12 +50,9 @@ pub fn dedup(tracks: Vec<Track>) -> Vec<Track> {
 /// free to back it with a single bulk lookup instead of one query per
 /// track.
 ///
-/// No production caller yet: wiring this into `generate_mixed_candidates`
-/// needs a `Db`/unavailable-id-set threaded down through `ScoringContext`
-/// (or similar) in `mood_engine::mod`, outside this file's scope — see
-/// `Db::is_track_unavailable`'s doc comment. Exercised directly by tests
-/// until then.
-#[allow(dead_code)]
+/// Called from `mood_engine::rank_candidates`, which passes the set
+/// `Db::all_unavailable_track_ids` loaded once per top-up — the bulk
+/// lookup won over a per-track query.
 pub fn filter_out_unavailable(
     tracks: Vec<Track>,
     is_unavailable: impl Fn(&str) -> bool,

@@ -19,6 +19,9 @@ pub struct ScoringContext {
     pub avg_completion: HashMap<String, f64>,
     /// artist name -> how many of that artist's tracks the listener liked
     pub liked_artist_counts: HashMap<String, u32>,
+    /// tracks previously marked unavailable (see `Db::mark_track_unavailable`)
+    /// — filtered out of candidates entirely, never scored.
+    pub unavailable_tracks: HashSet<String>,
 }
 
 /// The recommendation formula: rewards liked/favorited/finished/
