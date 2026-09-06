@@ -17,12 +17,6 @@ use tauri::Manager;
 
 use state::AppState;
 
-// Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
-}
-
 /// Whether this process is running from an AppImage — set by the
 /// AppImage runtime itself (`APPIMAGE` env var points at the mounted
 /// image). Only the AppImage build supports in-place self-update; `.deb`
@@ -124,7 +118,6 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            greet,
             is_appimage_build,
             get_third_party_licenses,
             commands::mood::list_moods,
