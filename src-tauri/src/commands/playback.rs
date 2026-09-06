@@ -24,15 +24,36 @@ pub async fn seek_playback(state: State<'_, AppState>, seconds: f64) -> Result<(
     Ok(())
 }
 
+/// `persist` is `false` for every tick of a volume slider drag and `true`
+/// only for the trailing call once the user stops moving it (debounced on
+/// the frontend, see `usePlayback.setVolume` — P1-4). The live mpv volume
+/// always applies immediately either way; only the SQLite write is
+/// conditional, so a drag doesn't turn into ~100 writes.
 #[tauri::command]
-pub async fn set_playback_volume(state: State<'_, AppState>, volume: u8) -> Result<()> {
-    set_playback_volume_impl(&state, volume).await
+pub async fn set_playback_volume(
+    state: State<'_, AppState>,
+    volume: u8,
+    persist: bool,
+) -> Result<()> {
+    set_playback_volume_impl(&state, volume, persist).await
 }
 
-pub(crate) async fn set_playback_volume_impl(state: &AppState, volume: u8) -> Result<()> {
-    let mut settings = state.db.lock().unwrap().get_settings()?;
-    settings.volume = volume;
-    state.db.lock().unwrap().save_settings(&settings)?;
+pub(crate) async fn set_playback_volume_impl(
+    state: &AppState,
+    volume: u8,
+    persist: bool,
+) -> Result<()> {
+    if persist {
+        // Single lock acquisition for the read-modify-write -- two
+        // separate `db.lock()` calls here would let a concurrent settings
+        // write interleave between the read and the write and get
+        // clobbered, the same class of bug already fixed in
+        // `record_current_completion`.
+        let db = state.db.lock().unwrap();
+        let mut settings = db.get_settings()?;
+        settings.volume = volume;
+        db.save_settings(&settings)?;
+    }
     state.player.lock().await.set_volume(volume).await
 }
 
@@ -87,9 +108,25 @@ mod tests {
         // live apply fails. Volume should still be remembered for the next
         // session, matching a preference the user set independent of
         // whatever happens to be playing right now.
-        let result = set_playback_volume_impl(&state, 42).await;
+        let result = set_playback_volume_impl(&state, 42, true).await;
 
         assert!(result.is_err());
         assert_eq!(state.db.lock().unwrap().get_settings().unwrap().volume, 42);
+    }
+
+    #[tokio::test]
+    async fn set_playback_volume_does_not_persist_when_not_asked_to() {
+        // The debounced path (P1-4): every tick of a slider drag calls this
+        // with `persist: false` so the live mpv volume still applies
+        // immediately, without writing to SQLite on every single tick.
+        let state = test_state();
+        let before = state.db.lock().unwrap().get_settings().unwrap().volume;
+
+        let _ = set_playback_volume_impl(&state, before.wrapping_add(1), false).await;
+
+        assert_eq!(
+            state.db.lock().unwrap().get_settings().unwrap().volume,
+            before
+        );
     }
 }
