@@ -138,7 +138,10 @@ export function PlayerView({
                 seek(Math.max(0, Math.min(1, ratio)) * duration);
               }}
               onKeyDown={(e) => {
-                if (!duration || !position) return;
+                // `position === 0` is a legitimate, common value (start of
+                // track) — only `null`/`undefined` (not yet known) and a
+                // missing duration should block seeking (P3).
+                if (!duration || position == null) return;
                 if (e.key === "ArrowRight") seek(Math.min(duration, position + 5));
                 if (e.key === "ArrowLeft") seek(Math.max(0, position - 5));
               }}

@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { TopBar } from "./components/TopBar";
 import { HomeView } from "./components/HomeView";
 import { QueueView } from "./components/QueueView";
@@ -29,9 +29,37 @@ function App() {
 
   const playback = usePlayback();
   const moodsData = useMoods();
+  // Destructured out, not read as `playback.dismissError` below: `playback`
+  // itself gets a new object reference on every poll tick while a track is
+  // playing, but the function this property holds is stable (empty-deps
+  // `useCallback` in `usePlayback`) -- referencing the stable function
+  // directly, instead of through the churning object, keeps
+  // `dismissDisplayedError` itself stable, so the auto-dismiss effect below
+  // doesn't reset its timer every second during playback.
+  const { dismissError: dismissPlaybackError } = playback;
 
   const reportError = useCallback((message: string) => setGlobalError(message), []);
   const onSceneSaved = useCallback(() => setSceneSaveTick((t) => t + 1), []);
+
+  // usePlayback owns its own transient `error` (failed pause/seek/volume
+  // IPC calls, plus the `track-unavailable` message) but has no banner of
+  // its own — merged at render time (not synced through an effect, which
+  // would just be React state mirroring React state) into the same global
+  // banner every other view already reports into via `onError`.
+  const displayedError = playback.error ?? globalError;
+  const dismissDisplayedError = useCallback(() => {
+    setGlobalError(null);
+    dismissPlaybackError();
+  }, [dismissPlaybackError]);
+
+  // A transient error shouldn't sit on screen forever waiting for some
+  // unrelated action to overwrite it -- auto-dismiss, restarting the timer
+  // whenever a new message replaces the old one.
+  useEffect(() => {
+    if (!displayedError) return;
+    const id = window.setTimeout(dismissDisplayedError, 6000);
+    return () => window.clearTimeout(id);
+  }, [displayedError, dismissDisplayedError]);
 
   const handleStartMood = useCallback(
     async (moodId: string) => {
@@ -125,9 +153,9 @@ function App() {
     <div className="app-shell">
       <TopBar view={view} onChangeView={setView} />
 
-      {globalError ? (
+      {displayedError ? (
         <div style={{ paddingTop: 12 }}>
-          <ErrorBanner message={globalError} />
+          <ErrorBanner message={displayedError} onDismiss={dismissDisplayedError} />
         </div>
       ) : null}
 
