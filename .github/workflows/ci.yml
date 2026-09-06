@@ -142,7 +142,9 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
             libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev xdg-utils
       - name: Install mpv + FFmpeg build prerequisites
-        # Mirrors release.yml's package list — keep the two in sync.
+        # Mirrors release.yml's package list — keep the two in sync,
+        # *except* gstreamer1.0-libav below, which is deliberately not
+        # mirrored there (see its own comment).
         # No libav*-dev/libsw*-dev here: scripts/build-ffmpeg.sh builds
         # its own minimal FFmpeg from source instead of linking the
         # distro's monolithic one (see docs/adr/0007's 2026-09-06
@@ -155,6 +157,31 @@ jobs:
           sudo apt-get install -y meson ninja-build patchelf pkg-config nasm \
             libssl-dev libplacebo-dev libass-dev \
             libasound2-dev libpulse-dev
+      - name: Install gstreamer1.0-libav (provokes the AppImage soname-collision check below, not a build dependency)
+        # Confirmed absent from the ubuntu-24.04 GitHub-hosted runner image
+        # by default: it's not in actions/runner-images' own installed-
+        # software manifest for Ubuntu 24.04, and packages.ubuntu.com shows
+        # it's only a `Suggests` of libwebkit2gtk-4.1-0 (not a `Depends`/
+        # `Recommends`), which apt-get install never pulls in automatically
+        # either way. Installed here anyway, deliberately, so the collision
+        # check below is exercised against a build machine that actually
+        # has it — otherwise a missing package silently removes the one
+        # precondition needed to provoke the failure mode being tested for
+        # (this is exactly the gap the 2026-09-06 ADR update flagged in the
+        # previous agent's own AppImage test).
+        #
+        # What it actually does to the build, verified for real (see ADR
+        # 0007's "AppImage soname-collision risk, closed" update): nothing,
+        # currently — Tauri's AppImage bundler only copies GStreamer's
+        # libav plugin (the actual file that would pull the full distro
+        # FFmpeg into the AppDir) when `bundle.linux.appimage
+        # .bundleMediaFramework` is `true` in tauri.conf.json, which
+        # Echora's config does not set (defaults to `false`). Installed
+        # anyway as a forward guard: if that setting is ever flipped on
+        # without updating CI, this package's presence is what lets the
+        # check below catch the resulting collision immediately instead of
+        # silently passing for the same reason the previous test did.
+        run: sudo apt-get install -y gstreamer1.0-libav
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
@@ -211,23 +238,21 @@ jobs:
       - name: Smoke test the AppImage's mpv against the wrong FFmpeg (soname-collision check)
         # OPEN RISK this check exists to catch, not a settled-safe case
         # — see docs/adr/0007-arm64-native-ci-and-mpv-build.md's
-        # "AppImage soname-collision risk" (2026-09-06). `linuxdeploy`
-        # (Tauri's AppImage bundler) separately auto-bundles *its own*
-        # copies of the same sonames (libavcodec.so.60 et al.) flat into
-        # the AppImage's usr/lib/, for WebKitGTK/GStreamer's own use, and
-        # rewrites mpv's rpath to point there too — outside
-        # scripts/build-mpv.sh's control entirely, since that happens
-        # later, inside tauri-action's own bundling step. Before this
-        # project minimized FFmpeg, both copies were byte-identical
-        # Ubuntu apt packages, so it didn't matter which one mpv actually
-        # got. Now they are not identical, and whichever wins is
-        # invisible from the outside (mpv still starts either way) unless
-        # checked directly: our minimal libavcodec was built with
-        # --disable-everything, so it can never have a NEEDED entry on
-        # any GPL/nonfree codec lib Ubuntu's full package always carries
-        # (libx264/libx265/libvpx/libaom/libdav1d/librav1e) — if the
-        # AppImage's mpv resolves to a libavcodec that DOES pull one of
-        # those in, the full system copy won instead of ours.
+        # "AppImage soname-collision risk" (2026-09-06, closed by this
+        # step) for the full mechanism and how it was actually verified
+        # (a real linuxdeploy repro, both with and without GStreamer
+        # plugin bundling), not just reasoned about.
+        #
+        # Two decisive, opposite-direction checks below, both against the
+        # *real* extracted AppImage on the machine that actually built it
+        # (the `gstreamer1.0-libav` install above is what makes this
+        # environment able to reproduce the collision mechanism at all):
+        #  1. does the AppImage's mpv end up loading the FULL distro
+        #     FFmpeg instead of ours (the size win silently not
+        #     happening)?
+        #  2. does anything OTHER than mpv in the AppDir end up depending
+        #     on our minimal libavcodec.so.60 (a minimal-FFmpeg leak
+        #     breaking some unrelated GStreamer/WebKitGTK consumer)?
         run: |
           set -euo pipefail
           APPIMAGE_PATH="$(find src-tauri/target/release/bundle/appimage -name '*.AppImage' -print -quit)"
@@ -239,25 +264,88 @@ jobs:
           docker run --rm -v "$PWD/$APPIMAGE_PATH:/echora.AppImage:ro" ubuntu:24.04 bash -c '
             set -euo pipefail
             apt-get update -qq
-            apt-get install -y -qq file >/dev/null
+            apt-get install -y -qq file binutils >/dev/null
             cp /echora.AppImage /tmp/echora.AppImage
             chmod +x /tmp/echora.AppImage
             cd /tmp
             ./echora.AppImage --appimage-extract >/dev/null
             echo "--- ldd squashfs-root/usr/bin/mpv ---"
-            if ldd squashfs-root/usr/bin/mpv | grep -q "not found"; then
-              echo "MISSING LIBRARIES in AppImage mpv:" >&2
-              ldd squashfs-root/usr/bin/mpv | grep "not found" >&2
+            ldd squashfs-root/usr/bin/mpv || true
+            # Scoped to the libraries scripts/build-mpv.sh itself bundles
+            # (FFmpeg/libass/libplacebo/OpenSSL -- see that script own
+            # EXCLUDE_LIBS comment), not a blanket "nothing may be missing"
+            # check. Verified for real in this task: linuxdeploy (the
+            # Tauri AppImage bundler) does not carry every single one of
+            # build-mpv.sh own bundled libraries into the AppImage flat
+            # usr/lib/ as-is -- it drops some (X11, fontconfig/freetype/
+            # harfbuzz/fribidi, ALSA) on the assumption a real Linux
+            # desktop already has them, the same "assumed present on the
+            # target system" convention the .deb relies on explicitly via
+            # deb.depends for ALSA/PulseAudio specifically (this project
+            # bundles neither). A bare ubuntu:24.04 container with nothing
+            # but file/binutils installed (this steps own container) does
+            # not have any of those either, so a blanket check here would
+            # always fail for reasons that have nothing to do with what
+            # this project actually bundles -- confirmed for real: it
+            # did, every time, until scoped down to this list.
+            MISSING="$(ldd squashfs-root/usr/bin/mpv | grep "not found" | grep -E "libav|libsw|libpostproc|libass|libplacebo|libssl|libcrypto" || true)"
+            if [ -n "$MISSING" ]; then
+              echo "MISSING LIBRARIES in AppImage mpv (build-mpv.sh'"'"'s own bundle):" >&2
+              echo "$MISSING" >&2
               exit 1
             fi
             LIBAVCODEC="$(ldd squashfs-root/usr/bin/mpv | awk "/libavcodec\.so/ {print \$3}")"
             echo "AppImage mpv resolves libavcodec to: $LIBAVCODEC"
-            echo "--- ldd on that libavcodec (soname-collision check) ---"
+
+            echo "--- check 1: did the FULL system FFmpeg win instead of ours? ---"
+            echo "ldd on that libavcodec:"
             ldd "$LIBAVCODEC"
             if ldd "$LIBAVCODEC" | grep -qE "libx264|libx265|libvpx|libaom|libdav1d|librav1e"; then
-              echo "SONAME COLLISION: the AppImage'"'"'s mpv is linked against the FULL system FFmpeg, not the minimal build -- see ADR 0007" >&2
+              echo "SONAME COLLISION: the AppImage'"'"'s mpv is linked against the FULL system FFmpeg, not the minimal build (a --disable-everything libavcodec can never NEED a GPL/nonfree codec lib) -- see ADR 0007" >&2
               exit 1
             fi
-            echo "--- mpv --version (from inside the AppDir) ---"
-            LD_LIBRARY_PATH=squashfs-root/usr/lib squashfs-root/usr/bin/mpv --version
+            echo "OK: resolved libavcodec has none of the GPL/nonfree codec libs a full Ubuntu build always carries -- it is ours."
+
+            echo "--- check 2: did our minimal libavcodec leak to some OTHER consumer in the AppDir? ---"
+            echo "(informational: does this build even bundle a GStreamer libav plugin at all? bundleMediaFramework is unset/false in tauri.conf.json, so it should not.)"
+            find squashfs-root -iname "libgstlibav*" -print || true
+            # Direct NEEDED entries only (objdump -p), not ldds transitive
+            # closure -- ldd would also list libavcodec.so for our own
+            # bundled libavformat.so.60/libavdevice.so.60, which legitimately
+            # link it internally (verified for real: `objdump -p` on both
+            # shows a direct NEEDED on libavcodec.so.60; libavfilter.so.60
+            # does not). Those two, plus mpv itself, are the only expected
+            # direct consumers this scripts own bundle produces.
+            OTHER_CONSUMERS=""
+            while IFS= read -r -d "" f; do
+              base="$(basename "$f")"
+              case "$base" in
+                mpv|libavformat.so*|libavdevice.so*) continue ;;
+              esac
+              file "$f" | grep -q ELF || continue
+              if objdump -p "$f" 2>/dev/null | grep NEEDED | grep -q "libavcodec\.so"; then
+                OTHER_CONSUMERS="$OTHER_CONSUMERS $f"
+              fi
+            done < <(find squashfs-root -type f -print0)
+            if [ -n "$OTHER_CONSUMERS" ]; then
+              echo "LEAK: files other than mpv/libavformat/libavdevice directly depend on libavcodec.so in this AppDir, so whichever copy linuxdeploy placed at the shared usr/lib/ path is shared with them too -- inspect each one individually, this is not automatically safe:" >&2
+              echo "$OTHER_CONSUMERS" >&2
+              exit 1
+            fi
+            echo "OK: no file besides mpv/libavformat/libavdevice directly depends on libavcodec.so -- nothing else can be affected by which copy won the shared path."
+
+            echo "--- mpv --version (from inside the AppDir, informational only) ---"
+            # Not gated on: this bare container has none of the desktop
+            # libraries (X11, fontconfig, ALSA, ...) linuxdeploy assumes a
+            # real Linux desktop already provides and does not bundle into
+            # the AppImage (see the check-1 scoping comment above) -- a
+            # real target machine has them, this container deliberately
+            # does not (matching the .deb checks own "nothing but
+            # deb.depends" philosophy, just with no AppImage equivalent of
+            # deb.depends to install here). The two checks above already
+            # gave the real, decisive pass/fail signal for this steps own
+            # purpose (the soname collision); this line is a best-effort
+            # extra data point, not a third assertion.
+            LD_LIBRARY_PATH=squashfs-root/usr/lib squashfs-root/usr/bin/mpv --version \
+              || echo "mpv --version did not run in this minimal container (expected -- see comment above); checks 1 and 2 above are this steps real result"
           '
