@@ -11,6 +11,13 @@ pub fn parse_search_result(line: &str) -> Result<Track> {
         .and_then(|v| v.as_str())
         .ok_or_else(|| EchoraError::Metadata("search result missing id".into()))?
         .to_string();
+    if !is_valid_youtube_id(&id) {
+        // Don't echo the raw id back in the error -- it's untrusted input
+        // and this message may end up in a log or crash report.
+        return Err(EchoraError::Metadata(
+            "search result id is not a valid YouTube video id".into(),
+        ));
+    }
     let title = value
         .get("title")
         .and_then(|v| v.as_str())
@@ -74,6 +81,20 @@ pub fn classify_ytdlp_failure(stderr: &str) -> EchoraError {
     EchoraError::TrackUnavailable(reason.into())
 }
 
+/// A real YouTube video id is always exactly 11 characters from the
+/// URL-safe base64 alphabet (`[A-Za-z0-9_-]`). This is the single
+/// validation point for every id crossing the yt-dlp boundary -- both
+/// search results here and `resolver::resolve`'s direct URL construction
+/// call this before trusting an id, since a stray `&` or `?` in an
+/// unvalidated id would inject extra query parameters into the YouTube URL
+/// yt-dlp is told to fetch.
+pub fn is_valid_youtube_id(id: &str) -> bool {
+    id.len() == 11
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+}
+
 /// yt-dlp gives a top-level `thumbnail` convenience field on full (non-flat)
 /// output, but flat-playlist search results only have a `thumbnails` array
 /// — the last entry is conventionally the highest-resolution one.
@@ -123,6 +144,27 @@ mod tests {
     #[test]
     fn search_result_without_an_id_errors() {
         let err = parse_search_result(r#"{"title": "no id here"}"#).unwrap_err();
+        assert!(matches!(err, EchoraError::Metadata(_)));
+    }
+
+    #[test]
+    fn search_result_id_with_an_ampersand_errors() {
+        // Correct length (11), but the extra `&` is exactly what would
+        // inject a query parameter into the YouTube URL built downstream.
+        let err = parse_search_result(r#"{"id": "abcdefghi&j", "title": "t"}"#).unwrap_err();
+        assert!(matches!(err, EchoraError::Metadata(_)));
+    }
+
+    #[test]
+    fn search_result_id_with_wrong_length_errors() {
+        let err = parse_search_result(r#"{"id": "abcdefghij", "title": "t"}"#).unwrap_err();
+        assert!(matches!(err, EchoraError::Metadata(_)));
+    }
+
+    #[test]
+    fn search_result_id_with_a_character_outside_the_alphabet_errors() {
+        // Right length (11), one character (`#`) outside [A-Za-z0-9_-].
+        let err = parse_search_result(r#"{"id": "abcdefgh#ij", "title": "t"}"#).unwrap_err();
         assert!(matches!(err, EchoraError::Metadata(_)));
     }
 

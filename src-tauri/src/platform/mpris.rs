@@ -112,10 +112,24 @@ fn metadata_for(track: &Track) -> Metadata {
     if let Some(duration) = track.duration_seconds {
         builder = builder.length(Time::from_secs(duration as i64));
     }
-    if let Some(art_url) = &track.thumbnail_url {
-        builder = builder.art_url(art_url.clone());
+    if let Some(art_url) = safe_art_url(track.thumbnail_url.as_deref()) {
+        builder = builder.art_url(art_url);
     }
     builder.build()
+}
+
+/// MPRIS `art_url` is fetched directly by the desktop shell (lock-screen
+/// widgets, notification panels, etc.) from wherever it points. yt-dlp
+/// thumbnails are always `https://`; anything else -- most importantly a
+/// `file://` URL, which could otherwise be used to make the desktop shell
+/// read an arbitrary local file chosen by untrusted search-result metadata
+/// -- is dropped rather than shown. No art beats leaking a scheme we never
+/// asked yt-dlp to give us.
+fn safe_art_url(thumbnail_url: Option<&str>) -> Option<String> {
+    let url = thumbnail_url?;
+    url.get(..8)?
+        .eq_ignore_ascii_case("https://")
+        .then(|| url.to_string())
 }
 
 /// YouTube video IDs can contain `-`/`_`, which aren't valid D-Bus object
@@ -449,6 +463,46 @@ mod tests {
             metadata.art_url(),
             Some("https://example.com/thumb.jpg".to_string())
         );
+    }
+
+    #[test]
+    fn safe_art_url_accepts_https() {
+        assert_eq!(
+            safe_art_url(Some("https://i.ytimg.com/vi/x/hq.jpg")),
+            Some("https://i.ytimg.com/vi/x/hq.jpg".to_string())
+        );
+    }
+
+    #[test]
+    fn safe_art_url_rejects_a_local_file_url() {
+        // A malicious search result could set this to disclose an
+        // arbitrary local file to whatever renders the MPRIS art.
+        assert_eq!(safe_art_url(Some("file:///etc/passwd")), None);
+    }
+
+    #[test]
+    fn safe_art_url_rejects_a_javascript_url() {
+        assert_eq!(safe_art_url(Some("javascript:alert(1)")), None);
+    }
+
+    #[test]
+    fn safe_art_url_rejects_absent_thumbnail() {
+        assert_eq!(safe_art_url(None), None);
+    }
+
+    #[test]
+    fn metadata_for_drops_a_non_https_thumbnail_instead_of_exposing_it() {
+        let track = Track {
+            id: "abc".into(),
+            title: "A Song".into(),
+            artist: None,
+            duration_seconds: None,
+            thumbnail_url: Some("file:///etc/passwd".into()),
+        };
+
+        let metadata = metadata_for(&track);
+
+        assert_eq!(metadata.art_url(), None);
     }
 
     #[test]

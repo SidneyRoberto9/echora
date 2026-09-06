@@ -80,6 +80,16 @@ impl Resolver {
         app: &tauri::AppHandle<R>,
         track_id: &str,
     ) -> Result<ResolvedStream> {
+        // Defense in depth: `track_id` may come from a `Track` already
+        // validated by `metadata::parse_search_result`, but it may also come
+        // from a DB row persisted by an older build, or any other caller --
+        // never trust it again right before it's interpolated into a URL
+        // yt-dlp is told to fetch.
+        if !metadata::is_valid_youtube_id(track_id) {
+            return Err(EchoraError::Metadata(
+                "cannot resolve: not a valid YouTube video id".into(),
+            ));
+        }
         let url = format!("https://www.youtube.com/watch?v={track_id}");
         let stdout = self
             .run(
@@ -148,6 +158,51 @@ impl Resolver {
                 &stderr,
             )))
         }
+    }
+}
+
+/// Deterministic, no network/binaries needed -- the invalid-id case is
+/// rejected before the yt-dlp sidecar is ever spawned.
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_config() -> ResolverConfig {
+        ResolverConfig {
+            deno_path: PathBuf::from("deno"),
+            timeout: Duration::from_secs(30),
+        }
+    }
+
+    fn test_app_handle() -> tauri::AppHandle<tauri::test::MockRuntime> {
+        tauri::test::mock_builder()
+            .plugin(tauri_plugin_shell::init())
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .expect("mock tauri app should build")
+            .handle()
+            .clone()
+    }
+
+    #[tokio::test]
+    async fn resolve_with_retry_rejects_an_id_with_a_url_injection_character() {
+        let app = test_app_handle();
+        let resolver = Resolver::new(test_config());
+        let err = resolver
+            .resolve_with_retry(&app, "abcdefghi&j")
+            .await
+            .unwrap_err();
+        assert!(matches!(err, EchoraError::Metadata(_)));
+    }
+
+    #[tokio::test]
+    async fn resolve_with_retry_rejects_an_id_with_the_wrong_length() {
+        let app = test_app_handle();
+        let resolver = Resolver::new(test_config());
+        let err = resolver
+            .resolve_with_retry(&app, "tooshort")
+            .await
+            .unwrap_err();
+        assert!(matches!(err, EchoraError::Metadata(_)));
     }
 }
 
