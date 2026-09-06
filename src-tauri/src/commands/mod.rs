@@ -111,12 +111,12 @@ pub(crate) async fn toggle_play_pause(state: &AppState) -> Result<()> {
 pub(crate) async fn record_current_completion(state: &AppState) -> Result<()> {
     let snapshot = {
         let queue = state.queue.lock().unwrap();
-        match (queue.current().cloned(), queue.position()) {
-            (Some(track), Some(position)) => Some((track, position)),
+        match (queue.current().cloned(), queue.play_ordinal()) {
+            (Some(track), Some(ordinal)) => Some((track, ordinal)),
             _ => None,
         }
     };
-    let Some((track, position)) = snapshot else {
+    let Some((track, play_ordinal)) = snapshot else {
         return Ok(());
     };
 
@@ -152,7 +152,7 @@ pub(crate) async fn record_current_completion(state: &AppState) -> Result<()> {
         .db
         .lock()
         .unwrap()
-        .record_play(session.id, &track, position as u32, completion)?;
+        .record_play(session.id, &track, play_ordinal as u32, completion)?;
     Ok(())
 }
 
