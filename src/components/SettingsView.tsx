@@ -5,13 +5,8 @@ import { getVersion } from "@tauri-apps/api/app";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useSettings } from "../hooks/useSettings";
 import { api, type CrashSummary, type LicenseEntry } from "../lib/api";
-
-const CACHE_OPTIONS: { label: string; mb: number }[] = [
-  { label: "250MB", mb: 250 },
-  { label: "500MB", mb: 500 },
-  { label: "1GB", mb: 1024 },
-  { label: "2GB", mb: 2048 },
-];
+import { EmptyState } from "./EmptyState";
+import { EmptyQueueIcon } from "./icons";
 
 const SPONSORBLOCK_CATEGORIES: { key: string; label: string }[] = [
   { key: "sponsor", label: "Sponsor segments" },
@@ -255,13 +250,31 @@ interface SettingsViewProps {
 }
 
 export function SettingsView({ onError }: SettingsViewProps) {
-  const { settings, error, update } = useSettings();
+  const { settings, loading, error, update } = useSettings();
 
   useEffect(() => {
     if (error) onError(error);
   }, [error, onError]);
 
-  if (!settings) return null;
+  if (loading) {
+    return (
+      <div className="settings-view">
+        <div className="skeleton" style={{ height: 44, borderRadius: 14, marginBottom: 8 }} />
+        <div className="skeleton" style={{ height: 44, borderRadius: 14 }} />
+      </div>
+    );
+  }
+
+  // Not loading and still no settings means the fetch failed (the error
+  // itself is surfaced by the app's global banner) — don't leave a blank
+  // screen instead.
+  if (!settings) {
+    return (
+      <div className="settings-view">
+        <EmptyState icon={<EmptyQueueIcon />} title="Couldn't load settings" />
+      </div>
+    );
+  }
 
   const toggleSponsorBlockCategory = (key: string) => {
     const has = settings.sponsorblock_categories.includes(key);
@@ -309,7 +322,7 @@ export function SettingsView({ onError }: SettingsViewProps) {
         <div className="settings-row">
           <span>
             <div className="settings-row__label">Launch Echora at login</div>
-            <div className="settings-row__hint">Takes effect the next time you install an update</div>
+            <div className="settings-row__hint">Applied immediately — takes effect next time you log in</div>
           </span>
           <Toggle
             on={settings.autostart_enabled}
@@ -322,24 +335,11 @@ export function SettingsView({ onError }: SettingsViewProps) {
       </div>
 
       <div className="settings-column">
-        <h2 className="settings-section__title">Cache</h2>
-        <div className="settings-row">
-          <span className="settings-row__label">Limit</span>
-          <div className="segmented" role="radiogroup" aria-label="Cache limit">
-            {CACHE_OPTIONS.map((option) => (
-              <button
-                key={option.mb}
-                type="button"
-                className={`segment${settings.cache_limit_mb === option.mb ? " is-active" : ""}`}
-                role="radio"
-                aria-checked={settings.cache_limit_mb === option.mb}
-                onClick={() => update({ cache_limit_mb: option.mb })}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
-        </div>
+        {/* ponytail: cache limit control removed (P1-2) — there's no disk
+            cache layer yet for it to govern, so it was a setting that did
+            nothing. Bring this section back once caching lands; per
+            docs/REQUIREMENTS_FREEZE.md it also needs an "Unlimited"
+            option this old control never had. */}
 
         <h2 className="settings-section__title">History</h2>
         <div className="settings-row">

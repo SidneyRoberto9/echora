@@ -59,8 +59,11 @@ validated.
 - Search is YouTube-only for v1.
 - Audio quality: best cost/benefit — good quality, minimal resource use;
   not "always the absolute best available."
-- Default cache limit: 500MB, adjustable (250MB / 500MB / 1GB / 2GB /
-  Unlimited).
+- Cache: deferred. No audio cache layer exists yet, so the Settings
+  control for it was removed in the 2026-09-06 audit remediation rather
+  than left as a knob that changes nothing. When a real cache lands, the
+  limit comes back as 500MB by default, adjustable (250MB / 500MB / 1GB
+  / 2GB / Unlimited).
 - History: retained indefinitely by default, clearable and disableable
   in Settings.
 - Telemetry: none by default. The one exception is a fully manual,
