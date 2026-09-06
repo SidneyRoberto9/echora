@@ -105,9 +105,11 @@ impl Db {
         Ok(liked.map(|v| v != 0))
     }
 
-    /// No caller yet — wired up when media resolution (Fase 3) can actually
-    /// detect an unavailable track; exercised directly by tests until then.
-    #[allow(dead_code)]
+    /// Records a track as unavailable (private/removed/region-blocked/etc,
+    /// see `media::metadata::classify_ytdlp_failure`) — called from
+    /// `commands::queue::advance_and_play` when an advance skips past a
+    /// track that failed to resolve, so it doesn't keep getting offered as
+    /// a mood candidate (see `mood_engine::candidates::filter_out_unavailable`).
     pub fn mark_track_unavailable(&self, track_id: &str, reason: &str) -> Result<()> {
         self.conn.execute(
             "INSERT INTO track_unavailable (track_id, reason, marked_at) VALUES (?1, ?2, ?3)
@@ -117,9 +119,14 @@ impl Db {
         Ok(())
     }
 
-    /// No caller yet — the mood engine (Fase 4) will use this to skip
-    /// known-bad tracks when picking candidates; exercised directly by
-    /// tests until then.
+    /// No production caller yet: `mood_engine::candidates::filter_out_unavailable`
+    /// is ready to filter a candidate batch through a predicate like this
+    /// one, but wiring it into `mood_engine::generate_mixed_candidates`
+    /// needs a `Db`/unavailable-id-set threaded down through
+    /// `ScoringContext` (or similar), which is out of this file's scope —
+    /// exercised directly by tests until that lands. Kept as a per-track
+    /// lookup (vs. a bulk query) since candidate batches are small; swap
+    /// for a bulk `SELECT` here if that ever shows up in profiling.
     #[allow(dead_code)]
     pub fn is_track_unavailable(&self, track_id: &str) -> Result<bool> {
         let exists: Option<i64> = self

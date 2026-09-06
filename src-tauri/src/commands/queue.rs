@@ -2,6 +2,7 @@ use tauri::{Emitter, State};
 
 use crate::error::{EchoraError, Result};
 use crate::models::{QueueView, SceneSummary, Track};
+use crate::queue::Queue;
 use crate::state::AppState;
 
 /// Below this many upcoming tracks, ask the mood engine for more before
@@ -10,6 +11,14 @@ use crate::state::AppState;
 /// goals).
 const LOW_WATERMARK: usize = 3;
 
+/// How many consecutive unavailable tracks one advance will skip past
+/// before giving up rather than trying candidates forever. Not needed for
+/// termination — `Queue::next()` already stops on its own at the end of
+/// the queue — but bounds how much synchronous yt-dlp-round-tripping a
+/// single advance can rack up if a long stretch of the queue turns out to
+/// be dead all at once.
+const MAX_UNAVAILABLE_SKIPS_PER_ADVANCE: usize = 5;
+
 /// Emitted after the queue advances on its own (a track finished playing
 /// naturally — see `media::auto_advance`), never after a manual
 /// next/previous/skip-to. Those are user-triggered and the frontend
@@ -17,6 +26,23 @@ const LOW_WATERMARK: usize = 3;
 /// track ending on its own is the one transition Rust has to actively
 /// push, since nothing else on the frontend polls the queue.
 pub(crate) const TRACK_AUTO_ADVANCED_EVENT: &str = "track-auto-advanced";
+
+/// Emitted whenever an advance had to skip one or more tracks because they
+/// resolved as unavailable (`EchoraError::TrackUnavailable` — private,
+/// removed, region-blocked, etc.), in addition to (not instead of)
+/// `TRACK_AUTO_ADVANCED_EVENT`/the command's own return value. This is the
+/// user-facing signal for "some tracks were skipped and marked unavailable"
+/// — including the case where *every* remaining candidate was unavailable,
+/// so nothing at all ended up playing. Payload: every skipped track, in the
+/// order they were tried, each with the reason it failed.
+pub(crate) const TRACK_UNAVAILABLE_EVENT: &str = "track-unavailable";
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub(crate) struct SkippedTrack {
+    pub id: String,
+    pub title: String,
+    pub reason: String,
+}
 
 #[tauri::command]
 pub fn get_queue(state: State<AppState>) -> QueueView {
@@ -54,14 +80,95 @@ async fn advance_and_play(
     // correctness issue, just occasionally redundant work.
     super::record_current_completion(&state).await?;
 
-    let advanced = advance_queue_if_expected(&state, expected_current);
-    if let Some(track) = &advanced {
-        super::resolve_and_load(app, &state, track).await?;
+    let initial = advance_queue_if_expected(&state, expected_current);
+
+    // `try_play` owns its own clone of `app`/`state` per call (it's
+    // `FnMut`, called once per candidate tried) so the originals below
+    // stay available for the DB-marking/event/top-up work afterward.
+    let try_play_app = app.clone();
+    let try_play_state = state.clone();
+    let (playing, skipped) = advance_past_unavailable(&state.queue, initial, move |track| {
+        let app = try_play_app.clone();
+        let state = try_play_state.clone();
+        async move { super::resolve_and_load(&app, &state, &track).await }
+    })
+    .await?;
+
+    if !skipped.is_empty() {
+        {
+            let db = state.db.lock().unwrap();
+            for (track, reason) in &skipped {
+                // Best-effort: failing to persist "this one's dead" must
+                // not turn an otherwise-successful skip into a hard error
+                // -- worst case it just gets offered again next round.
+                let _ = db.mark_track_unavailable(&track.id, reason);
+            }
+        }
+        let payload: Vec<SkippedTrack> = skipped
+            .into_iter()
+            .map(|(track, reason)| SkippedTrack {
+                id: track.id,
+                title: track.title,
+                reason,
+            })
+            .collect();
+        let _ = app.emit(TRACK_UNAVAILABLE_EVENT, payload);
     }
 
     // Best-effort: a stalled top-up shouldn't fail an otherwise-successful skip.
     let _ = ensure_queue_topped_up(app.clone(), state.clone()).await;
-    Ok(advanced)
+    Ok(playing)
+}
+
+/// Tries `try_play` against `first`, then each subsequent track
+/// `queue.next()` yields, for as long as it keeps failing with
+/// `EchoraError::TrackUnavailable` — the "skip a dead track and try the
+/// next one" behavior `advance_and_play` needs on top of resolving a
+/// single track. Any other error (mpv/IO/DB trouble, not the track's own
+/// fault) is propagated immediately instead of being treated as skippable.
+/// Gives up after `MAX_UNAVAILABLE_SKIPS_PER_ADVANCE` consecutive
+/// unavailable tracks, or once the queue itself runs out — whichever comes
+/// first.
+///
+/// ponytail: when it gives up, the queue's `current()` is left on the last
+/// track that was tried (now marked unavailable by the caller) rather than
+/// rolled back or cleared — `Queue` has no "unset current" operation to do
+/// either. A later top-up can still append fresh candidates after it, but
+/// nothing auto-resumes into them on its own; that needs a manual
+/// next/skip-to (or a `Queue` API addition), whichever comes up first. This
+/// is still strictly better than the bug being fixed here, where even one
+/// unavailable track froze the session for good.
+///
+/// Split out from `advance_and_play` so the skip-and-cap behavior is
+/// testable against a fake `try_play`, without a real resolver, mpv, or DB.
+/// Returns the track that ended up loaded (`None` if every candidate up to
+/// the cap or the queue's end was unavailable) plus every track that was
+/// skipped along the way, paired with its unavailability reason.
+async fn advance_past_unavailable<F, Fut>(
+    queue: &std::sync::Mutex<Queue>,
+    first: Option<Track>,
+    mut try_play: F,
+) -> Result<(Option<Track>, Vec<(Track, String)>)>
+where
+    F: FnMut(Track) -> Fut,
+    Fut: std::future::Future<Output = Result<()>>,
+{
+    let mut skipped = Vec::new();
+    let mut current = first;
+    while let Some(track) = current {
+        match try_play(track.clone()).await {
+            Ok(()) => return Ok((Some(track), skipped)),
+            Err(EchoraError::TrackUnavailable(reason)) => {
+                skipped.push((track, reason));
+                if skipped.len() >= MAX_UNAVAILABLE_SKIPS_PER_ADVANCE {
+                    return Ok((None, skipped));
+                }
+                current = queue.lock().unwrap().next().cloned();
+            }
+            Err(err) => return Err(err),
+        }
+    }
+    Ok((None, skipped))
 }
 
 /// Advances the queue past its current track if `expected_current` still
@@ -428,5 +535,134 @@ mod tests {
 
         assert_eq!(advance_queue_if_expected(&state, Some("a")), None);
         assert_eq!(advance_queue_if_expected(&state, None), None);
+    }
+
+    #[tokio::test]
+    async fn advance_past_unavailable_plays_the_first_track_immediately_when_it_works() {
+        let queue = Mutex::new(Queue::new());
+        let (playing, skipped) =
+            advance_past_unavailable(&queue, Some(track("a")), |_track| async { Ok(()) })
+                .await
+                .unwrap();
+
+        assert_eq!(playing.unwrap().id, "a");
+        assert!(skipped.is_empty());
+    }
+
+    #[tokio::test]
+    async fn advance_past_unavailable_is_a_noop_when_there_is_nothing_to_try() {
+        // Matches `advance_queue_if_expected` returning `None` (queue
+        // already at its end, or a stale auto-advance lost the race) --
+        // must not call `try_play` at all.
+        let queue = Mutex::new(Queue::new());
+        let called = std::cell::Cell::new(false);
+        let (playing, skipped) = advance_past_unavailable(&queue, None, |_track: Track| {
+            called.set(true);
+            async { Ok(()) }
+        })
+        .await
+        .unwrap();
+
+        assert!(playing.is_none());
+        assert!(skipped.is_empty());
+        assert!(!called.get());
+    }
+
+    #[tokio::test]
+    async fn advance_past_unavailable_skips_a_dead_track_and_plays_the_next_one() {
+        let queue = Mutex::new(Queue::new());
+        queue
+            .lock()
+            .unwrap()
+            .add_candidates([track("a"), track("b")]);
+        // Position is now at "a" -- matches what `advance_queue_if_expected`
+        // would already have done before handing "a" over as `first`.
+        let attempts = std::cell::RefCell::new(Vec::new());
+
+        let (playing, skipped) = advance_past_unavailable(&queue, Some(track("a")), |t| {
+            attempts.borrow_mut().push(t.id.clone());
+            async move {
+                if t.id == "a" {
+                    Err(EchoraError::TrackUnavailable("removed".into()))
+                } else {
+                    Ok(())
+                }
+            }
+        })
+        .await
+        .unwrap();
+
+        assert_eq!(playing.unwrap().id, "b");
+        assert_eq!(skipped.len(), 1);
+        assert_eq!(skipped[0].0.id, "a");
+        assert_eq!(skipped[0].1, "removed");
+        assert_eq!(*attempts.borrow(), vec!["a".to_string(), "b".to_string()]);
+        // The queue itself ends up parked on the track that actually played.
+        assert_eq!(queue.lock().unwrap().current().unwrap().id, "b");
+    }
+
+    #[tokio::test]
+    async fn advance_past_unavailable_stops_cleanly_once_the_queue_runs_out() {
+        let queue = Mutex::new(Queue::new());
+        queue
+            .lock()
+            .unwrap()
+            .add_candidates([track("a"), track("b")]);
+
+        let (playing, skipped) = advance_past_unavailable(&queue, Some(track("a")), |_t| async {
+            Err(EchoraError::TrackUnavailable("removed".into()))
+        })
+        .await
+        .unwrap();
+
+        assert!(playing.is_none());
+        assert_eq!(skipped.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn advance_past_unavailable_gives_up_after_the_cap_even_with_more_tracks_left() {
+        // One more track than the cap allows, all unavailable -- proves
+        // the cap actually bounds the work done, instead of the queue's
+        // own length being the only thing stopping it.
+        let queue = Mutex::new(Queue::new());
+        let ids: Vec<String> = (0..MAX_UNAVAILABLE_SKIPS_PER_ADVANCE + 2)
+            .map(|i| format!("t{i}"))
+            .collect();
+        queue
+            .lock()
+            .unwrap()
+            .add_candidates(ids.iter().map(|id| track(id)));
+        let attempts = std::cell::Cell::new(0usize);
+
+        let (playing, skipped) = advance_past_unavailable(&queue, Some(track(&ids[0])), |_t| {
+            attempts.set(attempts.get() + 1);
+            async { Err(EchoraError::TrackUnavailable("removed".into())) }
+        })
+        .await
+        .unwrap();
+
+        assert!(playing.is_none());
+        assert_eq!(skipped.len(), MAX_UNAVAILABLE_SKIPS_PER_ADVANCE);
+        assert_eq!(attempts.get(), MAX_UNAVAILABLE_SKIPS_PER_ADVANCE);
+    }
+
+    #[tokio::test]
+    async fn advance_past_unavailable_propagates_a_non_unavailability_error_without_skipping() {
+        let queue = Mutex::new(Queue::new());
+        queue
+            .lock()
+            .unwrap()
+            .add_candidates([track("a"), track("b")]);
+        let attempts = std::cell::Cell::new(0usize);
+
+        let err = advance_past_unavailable(&queue, Some(track("a")), |_t| {
+            attempts.set(attempts.get() + 1);
+            async { Err(EchoraError::Sidecar("mpv died".into())) }
+        })
+        .await
+        .unwrap_err();
+
+        assert!(matches!(err, EchoraError::Sidecar(_)));
+        assert_eq!(attempts.get(), 1);
     }
 }

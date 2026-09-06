@@ -42,6 +42,30 @@ pub fn dedup(tracks: Vec<Track>) -> Vec<Track> {
         .collect()
 }
 
+/// Drops tracks `is_unavailable` reports as already known-bad (see
+/// `Db::mark_track_unavailable`) — so a track that failed to resolve once
+/// doesn't keep resurfacing as a fresh candidate every round. Takes a
+/// predicate rather than a `Db` reference directly, same as the rest of
+/// this module: keeps it trivially unit-testable and leaves the caller
+/// free to back it with a single bulk lookup instead of one query per
+/// track.
+///
+/// No production caller yet: wiring this into `generate_mixed_candidates`
+/// needs a `Db`/unavailable-id-set threaded down through `ScoringContext`
+/// (or similar) in `mood_engine::mod`, outside this file's scope — see
+/// `Db::is_track_unavailable`'s doc comment. Exercised directly by tests
+/// until then.
+#[allow(dead_code)]
+pub fn filter_out_unavailable(
+    tracks: Vec<Track>,
+    is_unavailable: impl Fn(&str) -> bool,
+) -> Vec<Track> {
+    tracks
+        .into_iter()
+        .filter(|track| !is_unavailable(&track.id))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -107,6 +131,28 @@ mod tests {
     #[test]
     fn dedup_of_empty_input_is_empty() {
         assert!(dedup(vec![]).is_empty());
+    }
+
+    #[test]
+    fn filter_out_unavailable_drops_only_the_marked_tracks() {
+        let tracks = vec![track("a"), track("b"), track("c")];
+        let result = filter_out_unavailable(tracks, |id| id == "b");
+        assert_eq!(
+            result.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(),
+            vec!["a", "c"]
+        );
+    }
+
+    #[test]
+    fn filter_out_unavailable_keeps_everything_when_nothing_is_marked() {
+        let tracks = vec![track("a"), track("b")];
+        let result = filter_out_unavailable(tracks, |_| false);
+        assert_eq!(result.len(), 2);
+    }
+
+    #[test]
+    fn filter_out_unavailable_of_empty_input_is_empty() {
+        assert!(filter_out_unavailable(vec![], |_| true).is_empty());
     }
 
     #[test]

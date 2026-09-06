@@ -63,8 +63,18 @@ pub async fn watch(app: AppHandle) {
         let (next_neared_completion, should_advance) =
             tick_outcome(position, duration, neared_completion);
         neared_completion = next_neared_completion;
-        if should_advance {
-            let _ = auto_advance_from_watcher(&app, state, &track_id).await;
+        if should_advance && let Err(err) = auto_advance_from_watcher(&app, state, &track_id).await
+        {
+            // An unavailable track is *not* a failure here -- `advance_and_play`
+            // already treats `EchoraError::TrackUnavailable` as an expected,
+            // skippable case (skip to the next candidate, mark it, emit
+            // `TRACK_UNAVAILABLE_EVENT`) and never returns it as an `Err`. A
+            // real error reaching this point means something else went wrong
+            // (DB, mpv/IPC, ...) while advancing off a track that really did
+            // just finish playing. Log it instead of silently dropping it --
+            // but keep the watcher loop running regardless, since the next
+            // tick still needs to keep polling whatever's current.
+            eprintln!("auto-advance: failed to advance past track {track_id}: {err}");
         }
     }
 }
