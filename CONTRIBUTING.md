@@ -33,11 +33,31 @@ only to contribute back to this project.
 
 ## Checks to run before opening a PR
 
+The Rust commands below need placeholder sidecar binaries first. Tauri's
+build script checks, on **every** `cargo build`/`clippy`/`test` (not just
+packaging), that every `externalBin` and `resources` glob in
+`src-tauri/tauri.conf.json` resolves to a real file on disk. A clean
+clone has no binaries in `src-tauri/binaries/` — they're gitignored, and
+normally built/downloaded by CI — so without this step the first `cargo
+test` or `cargo clippy` fails immediately with `glob pattern binaries/
+lib/* path not found or didn't match any files`. Run once per clone, from
+the repo root:
+
+```
+./scripts/stub-sidecar-binaries.sh x86_64-unknown-linux-gnu src-tauri/binaries
+```
+
+On ARM64, use `aarch64-unknown-linux-gnu` instead. This is exactly what
+CI runs before its own fmt/clippy/test/build steps (see
+`.github/workflows/ci.yml`). The placeholders are no-op stand-ins — that's
+enough because none of the commands below actually execute the sidecars;
+the tests that do are `#[ignore]`d.
+
 Frontend (from repo root):
 ```
 npm run lint
 npm run build      # tsc typecheck + vite build
-npm test           # once test suites exist
+npm test           # vitest
 ```
 
 Rust (from `src-tauri/`):

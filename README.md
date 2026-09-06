@@ -100,9 +100,15 @@ npm run tauri dev      # run in development
 
 Checks before committing:
 ```bash
-npm run lint && npm run build      # frontend
+npm run lint && npm test && npm run build      # frontend
 cd src-tauri && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
 ```
+
+On a clean clone, the Rust commands need a one-time setup step first (a
+`cargo build`/`clippy`/`test` on an empty `src-tauri/binaries/` fails
+otherwise) — see
+["Checks to run before opening a PR"](CONTRIBUTING.md#checks-to-run-before-opening-a-pr)
+in `CONTRIBUTING.md`.
 
 ## Performance
 
