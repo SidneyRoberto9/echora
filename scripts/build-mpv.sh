@@ -40,14 +40,56 @@ meson compile -C build
 mkdir -p "$OUT_DIR" "$OUT_DIR/lib"
 cp build/mpv "$OUT_DIR/mpv-$TARGET_TRIPLE"
 
-# Bundle mpv's runtime shared-library dependencies (FFmpeg's libs; mpv
-# itself is never statically linkable on Linux — see ADR 0007) next to
-# the binary, then rewrite its rpath so the loader finds them there
-# regardless of install location.
+# Bundle mpv's runtime shared-library dependencies next to the binary,
+# then rewrite its rpath so the loader finds them there regardless of
+# install location (mpv itself is never statically linkable on Linux —
+# see ADR 0007).
+#
+# This bundles *everything* `ldd` reports except a short, justified
+# exclude list below — not a hand-picked "just the FFmpeg libs" guess.
+# That guess (`libav|libsw|libpostproc`) previously missed libass and
+# libplacebo entirely, and both are load-bearing: they're *unconditional*
+# `dependency()` calls in mpv's own top-level meson.build (confirmed by
+# reading it directly — no `-Dlibass=disabled`/`-Dlibplacebo=disabled`
+# option exists in mpv 0.41.0's meson.options; passing them makes
+# `meson setup` itself fail with "Unknown options"). Echora never
+# exercises either — audio-only, always `--no-video`, no subtitles (see
+# media/player.rs) — but mpv cannot be *built* without linking them, so
+# there's no way to avoid needing them at *runtime* short of patching
+# mpv's build system upstream, a bigger ongoing maintenance burden than
+# bundling their (~40MB) dependency chain. Revisit if a future mpv
+# release adds a real toggle for either.
+#
+# Excluded, and why:
+#  - libc/libm/libstdc++/libgcc_s (and libpthread/libdl/librt, listed in
+#    case an older glibc than this project's own CI/dev baseline — where
+#    they're already merged into libc — ever builds this): the C/C++
+#    runtime every dynamically-linked ELF binary on the target already
+#    requires just to exist. Bundling these would mean bundling glibc
+#    itself, which is exactly the "wontfix" static-linking problem
+#    ADR 0007 already explains mpv can't route around on Linux.
+#  - libasound/libpulse(common): the ALSA/PulseAudio runtime, declared as
+#    `.deb` system dependencies instead (see tauri.conf.json's
+#    `bundle.linux.deb.depends`), the same way any other desktop-audio
+#    Linux app depends on them, rather than bundled. libpulsecommon
+#    specifically is PulseAudio's own version-pinned private plugin
+#    (dlopen'd from a versioned path under .../pulseaudio/, not a normal
+#    SONAME dependency) — bundling a copy that could drift from whatever
+#    pulseaudio package is actually installed would be worse than
+#    relying on libpulse0's own apt dependency to keep them matched.
+#
+# Verified for real on Ubuntu 24.04 x86_64 (see task report): this
+# resolves to 170 libraries (~220MB). Installed into a clean `ubuntu:24.04`
+# container with none of the `-dev` build packages present — bundle plus
+# only `deb.depends` — `ldd` reports zero "not found" and `mpv --version`
+# plus real WAV playback both work. CI's `package-smoke-test` job
+# re-proves this on every run rather than trusting this comment to stay
+# true across mpv/Ubuntu version bumps.
+EXCLUDE_LIBS='/lib(c|m|stdc\+\+|gcc_s|pthread|dl|rt)\.so|/libasound\.so|/libpulse\.so|/libpulsecommon-[0-9.]+\.so'
 ldd "$OUT_DIR/mpv-$TARGET_TRIPLE" \
   | awk '/=> \// {print $3}' \
-  | grep -E 'libav|libsw|libpostproc' \
-  | xargs -I{} cp -n {} "$OUT_DIR/lib/"
+  | grep -Ev "$EXCLUDE_LIBS" \
+  | xargs -I{} cp --update=none {} "$OUT_DIR/lib/"
 
 # This dir is copied into the package's mpv-x86_64-unknown-linux-gnu/lib/
 # under Tauri's `resources` config, which lands at usr/lib/echora/lib/ in

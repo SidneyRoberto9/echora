@@ -116,6 +116,120 @@ reasoning about Tauri's docs:
   used here) whenever mpv's pinned version changes or the CI base image
   changes — don't assume it still holds.
 
+## Update (2026-09-06): mpv didn't actually start on a clean machine — fixed, and a real lightness cost surfaced
+
+A packaging audit flagged that `build-mpv.sh`'s runtime-lib filter
+(`ldd ... | grep -E 'libav|libsw|libpostproc'`) only ever bundled 7 FFmpeg
+libraries, while `release.yml` installs `libplacebo-dev`/`libass-dev` as
+build prerequisites (added in the 2026-09-01 update above, to make the
+*build* succeed) without ever bundling `libplacebo`/`libass` themselves
+into the package. On a clean target machine — one without those `-dev`
+packages' runtime counterparts already installed — the bundled mpv would
+fail to start at all: `error while loading shared libraries:
+libass.so.9: cannot open shared object file`. Verified by reproducing
+this exact failure in a bare `ubuntu:24.04` Docker container with none of
+the build's `-dev` packages present.
+
+**Investigated first, per the audit's own instruction: can Echora just
+not link libass/libplacebo, since it's audio-only?** Confirmed
+`media/player.rs` never passes `--vo`, `--sub-*`, or any GPU/subtitle
+flag — only `--idle=yes --no-video --no-terminal
+--input-ipc-server=...`. But `meson setup build -Dlibass=disabled
+-Dlibplacebo=disabled` was tried for real and **fails outright**:
+`ERROR: Unknown options: "libass, libplacebo"`. Reading mpv 0.41.0's
+`meson.build` directly confirms why: `libavcodec`, `libavfilter`,
+`libavformat`, `libavutil`, `libswresample`, `libswscale`, `libplacebo`,
+and `libass` are all `dependency(...)` calls with no `required:
+get_option(...)` gate and no corresponding entry in `meson.options` at
+all — they are unconditional, full stop, regardless of `-Dgl=disabled`/
+`-Dvulkan=disabled`/`-Dx11=disabled`/etc. There is no way to build mpv
+0.41.0 without linking both, short of patching mpv's own build system
+and carrying that patch across every future version bump — a bigger,
+open-ended maintenance burden than bundling their runtime dependency
+chain. So: **not disabled, bundled instead**, per this ADR's own
+existing "if a lib turns out to be necessary, bundle its transitive
+deps" fallback.
+
+**Bundling "just FFmpeg + libass + libplacebo" isn't enough either** —
+Ubuntu 24.04's `libavcodec60`/etc. are themselves built with essentially
+every optional codec, container, network-protocol, and text-shaping
+feature FFmpeg supports (encoders Echora never invokes: libx264, libx265,
+libaom, librav1e, libtheora, libwebp, five Flite TTS voices, PocketSphinx
+speech recognition, several exotic network-transport libraries, and
+more), all as hard `NEEDED` entries a real `ldd` confirms mpv's dynamic
+loader must resolve just to *start* — whether or not the code path is
+ever exercised. This isn't something `build-mpv.sh` chooses; it's
+inherited from linking against the distro's monolithic shared FFmpeg
+build rather than a custom minimal one.
+
+**Fix implemented:** `build-mpv.sh`'s bundling filter is no longer a
+hand-picked name list. It now bundles *everything* a real `ldd` reports,
+except a short, explicitly justified exclude list: the C/C++ runtime
+every ELF binary already needs to exist at all (`libc`, `libm`,
+`libstdc++`, `libgcc_s`), and ALSA/PulseAudio (`libasound`,
+`libpulse[common]`), which stay as `.deb` system dependencies rather than
+bundled, matching how any other desktop-audio Linux app depends on them
+(and because `libpulsecommon` is PulseAudio's own version-pinned private
+plugin, not a normal SONAME dependency — bundling a copy that could drift
+from the installed `pulseaudio` package would be worse than not bundling
+it).
+
+**Verified for real, not just reasoned about:** built `scripts/build-mpv.sh`
+end-to-end on Ubuntu 24.04 x86_64 in this environment. The new filter
+resolves to **170 libraries, ~220MB**. Installed the resulting bundle
+(mpv binary + `lib/`) at the real `usr/bin/mpv` +
+`usr/lib/echora/lib/*` layout into a bare `ubuntu:24.04` Docker container
+with *no* build-time `-dev` packages present — only `apt-get install
+libasound2t64 libpulse0` (see the `deb.depends` fix below) — and
+confirmed: `ldd /usr/bin/mpv` reports zero `not found`, `mpv --version`
+runs, and real WAV playback (`--no-video --no-terminal --ao=null
+<file>.wav`) exits 0. As a negative control, deleting one bundled `.so`
+(`libplacebo.so.338`) before the same check reproduces the exact original
+failure and a non-zero exit — confirming the check is decisive, not
+accidentally always-green. `.github/workflows/ci.yml`'s new
+`package-smoke-test` job re-runs this same check on every real build
+(weekly + on demand) rather than relying on this comment staying true
+across mpv/Ubuntu version bumps.
+
+**Separately confirmed and fixed: `deb.depends: ["libasound2", ...]` was
+broken on the actual build/target OS.** Ubuntu 24.04 (`noble`)'s "t64"
+64-bit-`time_t` package transition renamed the ALSA runtime package;
+`libasound2` no longer exists in `noble`'s repos at all (`apt-cache
+policy libasound2` → `Candidate: (none)`). An unversioned `Depends:
+libasound2` doesn't just fail to install cleanly — worse, verified in a
+clean container that `apt` silently resolves it to `liboss4-salsa-asound2`
+(an OSS-compatibility shim providing a virtual `libasound2`, not the real
+ALSA library), an unrelated package unlikely to be what's actually
+installed on a real desktop. Fixed to the alternative-dependency syntax
+`"libasound2t64 | libasound2"`, verified in the same container to
+correctly prefer the real `libasound2t64` package over the OSS shim.
+
+**Known, unresolved lightness cost — flagged, not silently accepted.**
+~220MB of bundled libraries is a serious increase from the previous
+(broken) ~34MB bundle, and sits in real tension with this project's
+lightness priority. This is *not* something a smarter `ldd` filter can
+fix further — every one of those 170 libraries is a genuine hard runtime
+dependency of the mpv binary as currently built. Reducing it for real
+would mean either (a) building a minimal custom FFmpeg from source with
+`--disable-everything` plus only the specific decoders/protocols/muxers
+Echora's real playback path needs, replacing reliance on Ubuntu's
+kitchen-sink shared FFmpeg package, or (b) patching mpv's own
+`meson.build` to make `libass`/`libplacebo` genuinely optional and
+maintaining that patch across mpv version bumps. Both are materially
+bigger undertakings than this fix's scope (a packaging-script/CI/config
+change) and change what this ADR's own toolchain choice implies — they
+need their own explicit decision, not a quiet default here.
+
+**Separately noticed, not fixed (out of this change's file scope):**
+neither `build-mpv.sh` nor `release.yml`'s mpv build-prerequisite list
+installs `libavdevice-dev`, so the CI-built mpv can't open `av://`
+sources (`[lavf] Unknown lavf format lavfi`). This doesn't affect real
+playback — Echora only ever loads real HTTP(S) media URLs via
+`loadfile`, never `av://` — but it does mean `media/player.rs`'s
+`#[ignore]`d local smoke tests that use `"av://lavfi:sine=..."` as a
+synthetic signal source would fail if ever run against a CI-built mpv
+instead of the system `mpv` package they currently rely on for local dev.
+
 ## Consequences
 - mpv becomes a build artifact Echora's own CI produces and
   checksum-tracks per release, not a binary fetched from a third party —
