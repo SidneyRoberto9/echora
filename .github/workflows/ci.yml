@@ -341,13 +341,13 @@ jobs:
             # bundled libavformat.so.60/libavdevice.so.60, which legitimately
             # link it internally (verified for real: `objdump -p` on both
             # shows a direct NEEDED on libavcodec.so.60; libavfilter.so.60
-            # does not). Those two, plus mpv itself, are the only expected
+            # does not). Those two, plus echora-mpv itself, are the only expected
             # direct consumers this scripts own bundle produces.
             OTHER_CONSUMERS=""
             while IFS= read -r -d "" f; do
               base="$(basename "$f")"
               case "$base" in
-                mpv|libavformat.so*|libavdevice.so*) continue ;;
+                echora-mpv|libavformat.so*|libavdevice.so*) continue ;;
               esac
               file "$f" | grep -q ELF || continue
               if objdump -p "$f" 2>/dev/null | grep NEEDED | grep -q "libavcodec\.so"; then
@@ -355,11 +355,11 @@ jobs:
               fi
             done < <(find squashfs-root -type f -print0)
             if [ -n "$OTHER_CONSUMERS" ]; then
-              echo "LEAK: files other than mpv/libavformat/libavdevice directly depend on libavcodec.so in this AppDir, so whichever copy linuxdeploy placed at the shared usr/lib/ path is shared with them too -- inspect each one individually, this is not automatically safe:" >&2
+              echo "LEAK: files other than echora-mpv/libavformat/libavdevice directly depend on libavcodec.so in this AppDir, so whichever copy linuxdeploy placed at the shared usr/lib/ path is shared with them too -- inspect each one individually, this is not automatically safe:" >&2
               echo "$OTHER_CONSUMERS" >&2
               exit 1
             fi
-            echo "OK: no file besides mpv/libavformat/libavdevice directly depends on libavcodec.so -- nothing else can be affected by which copy won the shared path."
+            echo "OK: no file besides echora-mpv/libavformat/libavdevice directly depends on libavcodec.so -- nothing else can be affected by which copy won the shared path."
 
             echo "--- mpv --version (from inside the AppDir, informational only) ---"
             # Not gated on: this bare container has none of the desktop
