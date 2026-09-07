@@ -56,3 +56,33 @@ are now pinned to an explicit version with an expected SHA-256 recorded
 in the script itself, resolved from the real release at pin time. This
 does not freeze yt-dlp — see CONTRIBUTING.md's "Bumping sidecar
 versions" section for how and when to move the pin forward.
+
+## Update (2026-09-06): sidecars ship prefixed, and Deno's path drops the triple
+Two defects found by installing the real v0.2.0 `.deb` on a developer
+machine — neither reachable from CI, whose containers are bare.
+
+Tauri's `externalBin` entries install alongside the main binary, so
+`binaries/{mpv,yt-dlp,deno}` landed as `/usr/bin/{mpv,yt-dlp,deno}` and
+dpkg refused the whole package on any machine already carrying the
+distro's `yt-dlp`:
+
+    dpkg: a tentar sobre-escrever '/usr/bin/yt-dlp', que também está no
+    pacote yt-dlp 2024.04.09-1
+
+Every `externalBin` entry is therefore prefixed — `echora-mpv`,
+`echora-yt-dlp`, `echora-deno` — which is the only namespace Echora
+controls in a shared `/usr/bin`. `.sidecar("...")` call sites, the
+build/fetch/stub scripts and the CI smoke tests use the prefixed names.
+A CI step installs the distro `yt-dlp` and `mpv` *before* the `.deb` so
+a regression fails there rather than on a user's machine.
+
+Separately, `resolve_deno_path()` was reconstructing
+`deno-x86_64-unknown-linux-gnu`, the on-disk dev name. Both bundlers
+strip the target triple: the `.deb` and the AppImage's AppDir each
+carry a plain `usr/bin/echora-deno`. The old path never existed in a
+shipped package, and the failure is silent — yt-dlp only warns
+("No supported JavaScript runtime could be found ... some formats may
+be missing") and degrades to extraction without a JS runtime, which is
+exactly the deprecated path this ADR exists to avoid. Dev mode still
+keeps the suffix, so the resolver branches on it and a unit test pins
+both shapes.
