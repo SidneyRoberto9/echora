@@ -259,8 +259,19 @@ jobs:
             for f in /usr/bin/echora-mpv /usr/bin/echora-yt-dlp /usr/bin/echora-deno; do
               test -x "$f" || { echo "missing sidecar: $f" >&2; exit 1; }
             done
-            echo "--- distro yt-dlp/mpv still intact ---"
-            dpkg -V yt-dlp mpv
+            echo "--- distro yt-dlp/mpv files still owned by the distro packages ---"
+            # Not dpkg -V: the official ubuntu image excludes docs and
+            # man pages via /etc/dpkg/dpkg.cfg.d/excludes, so -V reports
+            # hundreds of missing /usr/share/doc entries that have
+            # nothing to do with this package, and returns 0 anyway.
+            # Ownership is the property that actually matters here.
+            for owned in yt-dlp mpv; do
+              actual="$(dpkg -S "/usr/bin/$owned" | cut -d: -f1)"
+              test "$actual" = "$owned" || {
+                echo "/usr/bin/$owned is now owned by $actual, not $owned" >&2
+                exit 1
+              }
+            done
           '
       - name: Smoke test the AppImage's mpv against the wrong FFmpeg (soname-collision check)
         # OPEN RISK this check exists to catch, not a settled-safe case
