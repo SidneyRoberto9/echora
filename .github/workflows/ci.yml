@@ -235,6 +235,33 @@ jobs:
             echo "--- mpv --version ---"
             /usr/bin/echora-mpv --version
           '
+      - name: Prove the .deb does not collide with distro sidecar packages
+        # The clean-container test above cannot catch a filename
+        # collision: a bare ubuntu:24.04 ships none of mpv/yt-dlp/deno,
+        # so there is nothing there to collide with. v0.2.0 installed
+        # its sidecars as /usr/bin/{mpv,yt-dlp,deno} and dpkg refused
+        # the package on any machine that already had the distro
+        # yt-dlp: "a tentar sobre-escrever /usr/bin/yt-dlp, que tambem
+        # esta no pacote yt-dlp". This installs those distro packages
+        # FIRST, so a re-introduced unprefixed externalBin name fails
+        # here instead of on a user machine. Deliberately a separate
+        # container from the ldd check above: the distro packages drag
+        # in system libraries that could satisfy a missing bundled .so
+        # and mask that regression.
+        run: |
+          set -euo pipefail
+          DEB_PATH="$(find src-tauri/target/release/bundle/deb -name '*.deb' -print -quit)"
+          docker run --rm -v "$PWD/$DEB_PATH:/echora.deb:ro" ubuntu:24.04 bash -c '
+            set -euo pipefail
+            apt-get update -qq
+            apt-get install -y -qq --no-install-recommends yt-dlp mpv
+            apt-get install -y -qq /echora.deb
+            for f in /usr/bin/echora-mpv /usr/bin/echora-yt-dlp /usr/bin/echora-deno; do
+              test -x "$f" || { echo "missing sidecar: $f" >&2; exit 1; }
+            done
+            echo "--- distro yt-dlp/mpv still intact ---"
+            dpkg -V yt-dlp mpv
+          '
       - name: Smoke test the AppImage's mpv against the wrong FFmpeg (soname-collision check)
         # OPEN RISK this check exists to catch, not a settled-safe case
         # — see docs/adr/0007-arm64-native-ci-and-mpv-build.md's
