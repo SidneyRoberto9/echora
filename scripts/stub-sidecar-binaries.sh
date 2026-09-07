@@ -18,7 +18,7 @@ TARGET_TRIPLE="${1:?usage: stub-sidecar-binaries.sh <target-triple> <output-dir>
 OUT_DIR="${2:?usage: stub-sidecar-binaries.sh <target-triple> <output-dir>}"
 
 mkdir -p "$OUT_DIR" "$OUT_DIR/lib"
-for name in mpv yt-dlp deno; do
+for name in echora-mpv echora-yt-dlp echora-deno; do
   path="$OUT_DIR/$name-$TARGET_TRIPLE"
   printf '#!/bin/sh\nexit 0\n' >"$path"
   chmod +x "$path"

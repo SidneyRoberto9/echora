@@ -85,7 +85,7 @@ if ldd "$RESOLVED_LIBAVCODEC" | grep -qE 'libx264|libx265|libvpx|libaom|libdav1d
 fi
 
 mkdir -p "$OUT_DIR" "$OUT_DIR/lib"
-cp build/mpv "$OUT_DIR/mpv-$TARGET_TRIPLE"
+cp build/mpv "$OUT_DIR/echora-mpv-$TARGET_TRIPLE"
 
 # Bundle mpv's runtime shared-library dependencies next to the binary,
 # then rewrite its rpath so the loader finds them there regardless of
@@ -162,7 +162,7 @@ cp build/mpv "$OUT_DIR/mpv-$TARGET_TRIPLE"
 # trusting this comment to stay true across mpv/FFmpeg/Ubuntu version
 # bumps.
 EXCLUDE_LIBS='/lib(c|m|stdc\+\+|gcc_s|pthread|dl|rt)\.so|/libasound\.so|/libpulse\.so|/libpulsecommon-[0-9.]+\.so|/lib(FLAC|sndfile|vorbis|vorbisenc|opus|ogg|mpg123|mp3lame)\.so'
-ldd "$OUT_DIR/mpv-$TARGET_TRIPLE" \
+ldd "$OUT_DIR/echora-mpv-$TARGET_TRIPLE" \
   | awk '/=> \// {print $3}' \
   | grep -Ev "$EXCLUDE_LIBS" \
   | xargs -I{} cp --update=none {} "$OUT_DIR/lib/"
@@ -236,7 +236,7 @@ cp "$FFMPEG_PREFIX/echora-ffmpeg-source.tar.gz" "$OUT_DIR/ffmpeg-source.tar.gz"
 # place alongside them). CI's `package-smoke-test` job re-verifies this on
 # every real build rather than relying on this reasoning staying true
 # across mpv/linuxdeploy/Ubuntu version bumps.
-patchelf --force-rpath --set-rpath "\$ORIGIN/../lib/echora/lib" "$OUT_DIR/mpv-$TARGET_TRIPLE"
+patchelf --force-rpath --set-rpath "\$ORIGIN/../lib/echora/lib" "$OUT_DIR/echora-mpv-$TARGET_TRIPLE"
 
-echo "Built $OUT_DIR/mpv-$TARGET_TRIPLE"
-"$OUT_DIR/mpv-$TARGET_TRIPLE" --version
+echo "Built $OUT_DIR/echora-mpv-$TARGET_TRIPLE"
+"$OUT_DIR/echora-mpv-$TARGET_TRIPLE" --version

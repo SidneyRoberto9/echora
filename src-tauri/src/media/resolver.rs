@@ -116,7 +116,7 @@ impl Resolver {
     ) -> Result<String> {
         let (mut rx, child) = app
             .shell()
-            .sidecar("yt-dlp")
+            .sidecar("echora-yt-dlp")
             .map_err(|e| EchoraError::Sidecar(e.to_string()))?
             .args(&args)
             .spawn()

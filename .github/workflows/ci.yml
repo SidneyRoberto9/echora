@@ -226,14 +226,14 @@ jobs:
             set -euo pipefail
             apt-get update -qq
             apt-get install -y -qq /echora.deb
-            echo "--- ldd /usr/bin/mpv ---"
-            if ldd /usr/bin/mpv | grep -q "not found"; then
+            echo "--- ldd /usr/bin/echora-mpv ---"
+            if ldd /usr/bin/echora-mpv | grep -q "not found"; then
               echo "MISSING LIBRARIES (P1-8 regression):" >&2
-              ldd /usr/bin/mpv | grep "not found" >&2
+              ldd /usr/bin/echora-mpv | grep "not found" >&2
               exit 1
             fi
             echo "--- mpv --version ---"
-            /usr/bin/mpv --version
+            /usr/bin/echora-mpv --version
           '
       - name: Smoke test the AppImage's mpv against the wrong FFmpeg (soname-collision check)
         # OPEN RISK this check exists to catch, not a settled-safe case
@@ -269,8 +269,8 @@ jobs:
             chmod +x /tmp/echora.AppImage
             cd /tmp
             ./echora.AppImage --appimage-extract >/dev/null
-            echo "--- ldd squashfs-root/usr/bin/mpv ---"
-            ldd squashfs-root/usr/bin/mpv || true
+            echo "--- ldd squashfs-root/usr/bin/echora-mpv ---"
+            ldd squashfs-root/usr/bin/echora-mpv || true
             # Scoped to the libraries scripts/build-mpv.sh itself bundles
             # (FFmpeg/libass/libplacebo/OpenSSL -- see that script own
             # EXCLUDE_LIBS comment), not a blanket "nothing may be missing"
@@ -288,13 +288,13 @@ jobs:
             # always fail for reasons that have nothing to do with what
             # this project actually bundles -- confirmed for real: it
             # did, every time, until scoped down to this list.
-            MISSING="$(ldd squashfs-root/usr/bin/mpv | grep "not found" | grep -E "libav|libsw|libpostproc|libass|libplacebo|libssl|libcrypto" || true)"
+            MISSING="$(ldd squashfs-root/usr/bin/echora-mpv | grep "not found" | grep -E "libav|libsw|libpostproc|libass|libplacebo|libssl|libcrypto" || true)"
             if [ -n "$MISSING" ]; then
               echo "MISSING LIBRARIES in AppImage mpv (build-mpv.sh'"'"'s own bundle):" >&2
               echo "$MISSING" >&2
               exit 1
             fi
-            LIBAVCODEC="$(ldd squashfs-root/usr/bin/mpv | awk "/libavcodec\.so/ {print \$3}")"
+            LIBAVCODEC="$(ldd squashfs-root/usr/bin/echora-mpv | awk "/libavcodec\.so/ {print \$3}")"
             echo "AppImage mpv resolves libavcodec to: $LIBAVCODEC"
 
             echo "--- check 1: did the FULL system FFmpeg win instead of ours? ---"
@@ -346,6 +346,6 @@ jobs:
             # gave the real, decisive pass/fail signal for this steps own
             # purpose (the soname collision); this line is a best-effort
             # extra data point, not a third assertion.
-            LD_LIBRARY_PATH=squashfs-root/usr/lib squashfs-root/usr/bin/mpv --version \
+            LD_LIBRARY_PATH=squashfs-root/usr/lib squashfs-root/usr/bin/echora-mpv --version \
               || echo "mpv --version did not run in this minimal container (expected -- see comment above); checks 1 and 2 above are this steps real result"
           '

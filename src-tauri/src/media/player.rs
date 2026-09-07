@@ -134,7 +134,7 @@ impl Player {
 
         let (_rx, child) = app
             .shell()
-            .sidecar("mpv")
+            .sidecar("echora-mpv")
             .map_err(|e| EchoraError::Sidecar(e.to_string()))?
             .args([
                 "--idle=yes".to_string(),

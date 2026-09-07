@@ -50,14 +50,14 @@ if [ "$ARCH" = "aarch64" ]; then
   YT_DLP_ASSET="yt-dlp_linux_aarch64"
   YT_DLP_SHA256="b16e4dab368a816cd05d477d698a605a6ae87ccee1c8ffd38fa21d7254141fcc"
 fi
-curl -fL -o "$OUT_DIR/yt-dlp-$TARGET_TRIPLE" \
+curl -fL -o "$OUT_DIR/echora-yt-dlp-$TARGET_TRIPLE" \
   "https://github.com/yt-dlp/yt-dlp/releases/download/$YT_DLP_VERSION/$YT_DLP_ASSET"
-ACTUAL_SHA="$(sha256sum "$OUT_DIR/yt-dlp-$TARGET_TRIPLE" | awk '{print $1}')"
+ACTUAL_SHA="$(sha256sum "$OUT_DIR/echora-yt-dlp-$TARGET_TRIPLE" | awk '{print $1}')"
 if [ "$YT_DLP_SHA256" != "$ACTUAL_SHA" ]; then
   echo "yt-dlp checksum mismatch: expected $YT_DLP_SHA256, got $ACTUAL_SHA" >&2
   exit 1
 fi
-chmod +x "$OUT_DIR/yt-dlp-$TARGET_TRIPLE"
+chmod +x "$OUT_DIR/echora-yt-dlp-$TARGET_TRIPLE"
 
 # --- Deno ---
 # Expected SHA-256 values below come from Deno v2.9.6's own per-asset
@@ -75,7 +75,7 @@ if [ "$DENO_SHA256" != "$ACTUAL_SHA" ]; then
   echo "deno checksum mismatch: expected $DENO_SHA256, got $ACTUAL_SHA" >&2
   exit 1
 fi
-unzip -p "/tmp/$DENO_ZIP" deno > "$OUT_DIR/deno-$TARGET_TRIPLE"
-chmod +x "$OUT_DIR/deno-$TARGET_TRIPLE"
+unzip -p "/tmp/$DENO_ZIP" deno > "$OUT_DIR/echora-deno-$TARGET_TRIPLE"
+chmod +x "$OUT_DIR/echora-deno-$TARGET_TRIPLE"
 
-echo "Fetched and verified yt-dlp-$TARGET_TRIPLE ($YT_DLP_VERSION) and deno-$TARGET_TRIPLE ($DENO_VERSION) into $OUT_DIR"
+echo "Fetched and verified echora-yt-dlp-$TARGET_TRIPLE ($YT_DLP_VERSION) and echora-deno-$TARGET_TRIPLE ($DENO_VERSION) into $OUT_DIR"

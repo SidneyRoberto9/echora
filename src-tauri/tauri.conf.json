@@ -29,9 +29,9 @@
     "active": true,
     "targets": ["deb", "appimage"],
     "externalBin": [
-      "binaries/mpv",
-      "binaries/yt-dlp",
-      "binaries/deno"
+      "binaries/echora-mpv",
+      "binaries/echora-yt-dlp",
+      "binaries/echora-deno"
     ],
     "resources": {
       "binaries/lib/*": "lib/"
