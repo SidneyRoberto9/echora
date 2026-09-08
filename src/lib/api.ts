@@ -206,6 +206,13 @@ export const api = {
   onAudioLevel: (callback: (level: number) => void) =>
     listen<number>("audio-level", (event) => callback(event.payload)),
 
+  /** Fires whenever the volume actually changes, from any source — the
+   * tray's scroll wheel, MPRIS/media keys, or this window's own slider.
+   * Mirrors Rust's single choke point, `commands::playback::set_playback_volume_impl`
+   * (see docs/superpowers/specs/2026-09-08-tray-volume-design.md). */
+  onVolumeChanged: (callback: (percent: number) => void) =>
+    listen<number>("volume-changed", (event) => callback(event.payload)),
+
   favoriteTrack: (track: Track) => call<void>("favorite_track", { track }),
   unfavoriteTrack: (trackId: string) => call<void>("unfavorite_track", { trackId }),
   isTrackFavorited: (trackId: string) => call<boolean>("is_track_favorited", { trackId }),

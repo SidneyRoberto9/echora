@@ -187,6 +187,30 @@ export function usePlayback() {
     };
   }, []);
 
+  // Rust pushes this whenever volume changes from outside this window's
+  // own slider -- the tray's scroll wheel or MPRIS/media keys. Without
+  // this, only a fresh app launch would ever pick up a tray/MPRIS
+  // volume change (P1-1-style staleness, same class of bug already
+  // fixed for queue/playback state via onPlaybackChanged).
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+    (async () => {
+      const stop = await api.onVolumeChanged((percent) => {
+        setVolumeState(percent);
+      });
+      if (cancelled) {
+        stop();
+      } else {
+        unlisten = stop;
+      }
+    })();
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
+
   useEffect(() => {
     if (!queue.current || isPaused) return;
     let cancelled = false;
