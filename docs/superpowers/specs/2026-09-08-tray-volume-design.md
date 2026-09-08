@@ -124,10 +124,21 @@ Replace the `tauri::tray`/`MenuBuilder` implementation with a
 - `icon_pixmap()` — convert `app.default_window_icon()`'s RGBA bytes to
   the ARGB32 (network byte order) format `ksni::Icon` expects. This is
   a byte-order transform done once at startup, not a hot path.
-- `tool_tip()` — returns a `ksni::ToolTip { title: "Echora".into(), description: "Volume {N}%".into(), ..Default::default() }`,
-  read from `Player`'s cached `volume_percent()` (falling back to a
-  generic tooltip if the player hasn't started yet, matching how
-  `volume_percent()` already returns `None` pre-start elsewhere).
+- `tool_tip()` and `scroll()` are sync `Tray` trait methods invoked
+  from inside `ksni`'s own async service task — blocking on
+  `state.player.lock().await` (a `tokio::sync::Mutex`) via
+  `tauri::async_runtime::block_on` from in there risks a nested-runtime
+  panic (calling `block_on` from a thread already executing inside that
+  same tokio runtime). Neither method reads `Player` directly:
+  `tray.rs` keeps its own `pub(crate) static TRAY_VOLUME_HINT: AtomicU8`
+  (`AtomicU8::new(100)`, matching `Settings::volume`'s own default), a
+  lock-free mirror updated by the single choke point in §1 alongside
+  the event emit. `tool_tip()` and `scroll()` both just
+  `TRAY_VOLUME_HINT.load(Ordering::Relaxed)` — synchronous, no lock, no
+  IPC, safe from any calling context. `tool_tip()` returns
+  `ksni::ToolTip { title: "Echora".into(), description: format!("Volume {n}%"), ..Default::default() }`.
+  Seeded once at startup from `initial_settings.volume` (`lib.rs`'s
+  `setup` closure already reads this before anything else runs).
 - The `ksni::Handle<EchoraTray>` returned by `tray.spawn().await?`
   (via the `ksni::TrayMethods` trait) must be kept alive for the app's
   lifetime — unlike today's `tauri::tray::TrayIconBuilder::build()`,
@@ -135,20 +146,19 @@ Replace the `tauri::tray`/`MenuBuilder` implementation with a
   handle is dropped. Stored the same way `mpris.rs` stores its
   `AppHandle` — a second `pub(crate) static TRAY_HANDLE: OnceLock<ksni::Handle<EchoraTray>>`
   in `tray.rs`.
-- The tooltip only reflects a fresh volume automatically when the
-  *tray's own* `scroll` callback changes it (ksni republishes
-  properties after any `&mut self` trait callback runs — **verify
-  this empirically at implementation time**, it's the documented
-  behavior but not exhaustively confirmed against 0.3.6's actual
-  service loop). For the other two paths (frontend slider, MPRIS),
-  nothing inside `ksni`'s event loop ran, so the same choke point in
-  §1 additionally calls `TRAY_HANDLE.get()` → `handle.update(|_| {}).await`
-  after emitting `volume-changed`, forcing `ksni` to re-read
-  `tool_tip()` and push it over D-Bus. Calling `update()` a third time
-  from inside the tray's own `scroll` callback is skipped — redundant
-  at best, and calling it while already inside that callback risks
-  re-entrant locking inside `ksni`'s service (unconfirmed; avoided
-  rather than tested).
+- `scroll(&mut self, ...)` itself never blocks or awaits anything — it
+  reads `TRAY_VOLUME_HINT`, computes the new value, and
+  `tauri::async_runtime::spawn`s a task that calls
+  `set_playback_volume_impl` and returns immediately, so by the time
+  that spawned task actually runs (and, per §1, calls
+  `TRAY_HANDLE.get()` → `handle.update(|_| {}).await` to make `ksni`
+  re-read `tool_tip()` and push it over D-Bus), the original `scroll`
+  callback has already returned control to `ksni`'s service loop —
+  there's no reentrant call into `ksni` from inside its own callback
+  frame. The same choke point calls `update()` unconditionally
+  regardless of which of the three callers triggered it; a
+  tray-originated change refreshing its own tooltip a second time this
+  way is harmless.
 - The window-close-hides-to-tray wiring (`on_window_event` /
   `WindowEvent::CloseRequested`) is unrelated to the menu/D-Bus backend
   and stays exactly as-is.
