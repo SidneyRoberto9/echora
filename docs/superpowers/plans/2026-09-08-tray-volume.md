@@ -68,21 +68,26 @@ Add to `src-tauri/src/commands/playback.rs`'s existing `#[cfg(test)] mod tests` 
 
 ```rust
 #[tokio::test]
-async fn set_playback_volume_is_a_noop_emit_without_an_app_handle() {
+async fn set_playback_volume_does_not_panic_without_an_app_handle() {
     // In this test binary no real Tauri app is ever built, so
-    // `platform::mpris::APP_HANDLE` is never `.set()` — this just proves
-    // `set_playback_volume_impl` doesn't panic or error when the handle
-    // is absent, matching how `mpris::notify()` already degrades.
+    // `platform::mpris::APP_HANDLE` is never `.set()`. This just proves
+    // `set_playback_volume_impl` doesn't panic when the handle is absent
+    // (the `if let Some(app) = ...` guard is skipped entirely), matching
+    // how `mpris::notify()` already degrades. It still returns `Err` here
+    // because `test_state()`'s `Player` is never started — same reason
+    // the sibling test `set_playback_volume_persists_even_when_the_live_apply_fails`
+    // below asserts `is_err()`, not because of anything to do with the
+    // event emit.
     let state = test_state();
     let result = set_playback_volume_impl(&state, 55, false).await;
-    assert!(result.is_ok());
+    assert!(result.is_err());
 }
 ```
 
 - [ ] **Step 3: Run it to confirm it passes already (regression guard, not a red/green step)**
 
-Run: `cd src-tauri && cargo test set_playback_volume_is_a_noop_emit_without_an_app_handle`
-Expected: PASS (this step exists to freeze today's "no app handle → no crash" behavior before the emit is added, not to drive new behavior — there is no user-visible assertion possible for "an event fired" without a real `AppHandle`, which this codebase doesn't construct in unit tests anywhere, including `mpris.rs`'s own untested `notify()`).
+Run: `cd src-tauri && cargo test set_playback_volume_does_not_panic_without_an_app_handle`
+Expected: PASS (this step exists to freeze today's "no app handle → no panic" behavior before the emit is added, not to drive new behavior — there is no user-visible assertion possible for "an event fired" without a real `AppHandle`, which this codebase doesn't construct in unit tests anywhere, including `mpris.rs`'s own untested `notify()`).
 
 - [ ] **Step 4: Add the emit to `set_playback_volume_impl`**
 
