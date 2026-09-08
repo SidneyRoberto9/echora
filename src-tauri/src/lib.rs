@@ -68,6 +68,10 @@ pub fn run() {
             let moods = moods::MoodCatalog::load().expect("bundled moods.json should load");
 
             let initial_settings = db.get_settings()?;
+            platform::tray::TRAY_VOLUME_HINT.store(
+                initial_settings.volume,
+                std::sync::atomic::Ordering::Relaxed,
+            );
             let crash_reporting_enabled = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(
                 initial_settings.crash_report_enabled,
             ));
@@ -99,6 +103,7 @@ pub fn run() {
             });
 
             platform::tray::setup(app)?;
+            tauri::async_runtime::block_on(platform::tray::spawn(app.handle().clone()));
 
             // Keep the OS-level autostart entry truthful to the saved
             // setting even if it drifted (manually removed, fresh profile).

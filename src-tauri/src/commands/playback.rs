@@ -55,9 +55,15 @@ pub(crate) async fn set_playback_volume_impl(
         db.save_settings(&settings)?;
     }
     let result = state.player.lock().await.set_volume(volume).await;
+
+    crate::platform::tray::TRAY_VOLUME_HINT.store(volume, std::sync::atomic::Ordering::Relaxed);
     if let Some(app) = crate::platform::mpris::APP_HANDLE.get() {
         let _ = app.emit("volume-changed", volume);
     }
+    if let Some(handle) = crate::platform::tray::TRAY_HANDLE.get() {
+        let _ = handle.update(|_| {}).await;
+    }
+
     result
 }
 
