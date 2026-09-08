@@ -52,7 +52,7 @@ pub(crate) struct PlaybackChangedPayload {
 /// comment on why). A global is the least invasive way to get one to
 /// `notify()` without threading an `AppHandle` through every playback
 /// command's signature.
-static APP_HANDLE: OnceLock<AppHandle> = OnceLock::new();
+pub(crate) static APP_HANDLE: OnceLock<AppHandle> = OnceLock::new();
 
 pub struct MprisHandler {
     app: AppHandle,
@@ -395,7 +395,7 @@ impl PlayerInterface for MprisHandler {
     async fn set_volume(&self, volume: Volume) -> zbus::Result<()> {
         let state = self.app.state::<AppState>();
         let percent = (volume.max(0.0) * 100.0).round() as u8;
-        let _ = state.player.lock().await.set_volume(percent).await;
+        let _ = commands::playback::set_playback_volume_impl(&state, percent, true).await;
         Ok(())
     }
 

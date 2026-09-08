@@ -1,4 +1,4 @@
-use tauri::State;
+use tauri::{Emitter, State};
 
 use crate::error::Result;
 use crate::state::AppState;
@@ -54,7 +54,11 @@ pub(crate) async fn set_playback_volume_impl(
         settings.volume = volume;
         db.save_settings(&settings)?;
     }
-    state.player.lock().await.set_volume(volume).await
+    let result = state.player.lock().await.set_volume(volume).await;
+    if let Some(app) = crate::platform::mpris::APP_HANDLE.get() {
+        let _ = app.emit("volume-changed", volume);
+    }
+    result
 }
 
 #[tauri::command]
@@ -99,6 +103,22 @@ mod tests {
             app_dir: std::env::temp_dir(),
             crash_reporting_enabled: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
+    }
+
+    #[tokio::test]
+    async fn set_playback_volume_does_not_panic_without_an_app_handle() {
+        // In this test binary no real Tauri app is ever built, so
+        // `platform::mpris::APP_HANDLE` is never `.set()`. This just proves
+        // `set_playback_volume_impl` doesn't panic when the handle is absent
+        // (the `if let Some(app) = ...` guard is skipped entirely), matching
+        // how `mpris::notify()` already degrades. It still returns `Err` here
+        // because `test_state()`'s `Player` is never started — same reason
+        // the sibling test `set_playback_volume_persists_even_when_the_live_apply_fails`
+        // below asserts `is_err()`, not because of anything to do with the
+        // event emit.
+        let state = test_state();
+        let result = set_playback_volume_impl(&state, 55, false).await;
+        assert!(result.is_err());
     }
 
     #[tokio::test]
