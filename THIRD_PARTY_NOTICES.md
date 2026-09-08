@@ -64,7 +64,7 @@ below now reads "x86_64 only."
 Not separately redistributed as standalone binaries — compiled/bundled into
 the Echora application itself.
 
-**Rust dependency tree**: audited 2026-09-01 via `cargo deny check licenses`
+**Rust dependency tree**: audited 2026-09-08 via `cargo deny check licenses`
 (default-deny config) against the full resolved tree. Every license string
 found is permissive (MIT, Apache-2.0, BSD-2/3-Clause, ISC, Zlib, 0BSD,
 Unlicense, CC0-1.0, MIT-0, CDLA-Permissive-2.0, Unicode-3.0, and their OR
@@ -75,6 +75,8 @@ compiled-in Rust tree.
 |---|---|---|---|
 | **attohttpc, cssparser, cssparser-macros, dtoa-short, mpris-server** (Echora's own direct dependency, MPRIS desktop integration), **option-ext, selectors** | MPL-2.0 (plain, no OR) | **SAFE** — unmodified crates.io dependencies, statically compiled into Echora's binary. MPL-2.0 is weak, file-level copyleft: its "Larger Work" clause (§3.3) explicitly permits combining MPL-covered code with proprietary code without forcing the combined binary under MPL — unlike GPL/AGPL, ADR 0001/0006's linking-forces-copyleft finding does not apply here. | License text bundled and reachable via the app's Settings → Third-Party Licenses view (one copy, shared across all seven — see `src-tauri/src/licenses.rs`). Each crate's exact version is public, unmodified source on crates.io/upstream, which already satisfies MPL-2.0 §3.2's source-availability requirement. If any of these seven is ever forked/patched, its modified files must be republished under MPL-2.0 — re-review before that ships. |
 | **r-efi** (v5.3.0, v6.0.0) | MIT OR Apache-2.0 OR LGPL-2.1-or-later | **SAFE** — disjunctive multi-license; Echora elects **MIT**, complies solely with MIT's terms. LGPL-2.1-or-later is one of three alternatives offered, not a mandatory term; electing a different offered license carries no LGPL obligation (no dynamic-linking requirement, no source disclosure). | Standard MIT attribution (crate name + copyright notice) only. |
+| **ksni** (v0.3.6, Echora's own direct dependency, tray/StatusNotifierItem D-Bus integration) | Unlicense | **SAFE** — unmodified crates.io dependency, statically compiled into Echora's binary. Unlicense is a public-domain-equivalent dedication, already on `deny.toml`'s allow list. | None — a public-domain dedication imposes no attribution requirement. |
+| **pastey** (v0.2.3, transitive via ksni) | MIT OR Apache-2.0 | **SAFE** — disjunctive permissive license, already on `deny.toml`'s allow list. | Standard MIT/Apache-2.0 attribution only. |
 
 **npm dependency tree**: audited 2026-09-01 via `npx license-checker
 --summary` against 145 packages. All permissive: MIT (125), Apache-2.0
