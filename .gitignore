@@ -47,3 +47,6 @@ Cargo.lock.bak
 .env.*
 !.env.example
 
+# Personal Claude Code overrides (not team-shared)
+.claude/settings.local.json
+
