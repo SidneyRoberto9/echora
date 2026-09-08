@@ -58,8 +58,19 @@ impl Tray for EchoraTray {
         }]
     }
 
+    fn title(&self) -> String {
+        "Echora".into()
+    }
+
     fn tool_tip(&self) -> ToolTip {
         let percent = TRAY_VOLUME_HINT.load(Ordering::Relaxed);
+        // StatusNotifierItem's `ToolTip.description` can contain a subset of
+        // HTML markup, per the spec. The only interpolated value today is a
+        // `u8` percentage, so there's nothing to sanitize yet -- but if this
+        // is ever extended to show track metadata (title/artist), that data
+        // is untrusted external metadata from yt-dlp/YouTube (per this
+        // project's CLAUDE.md) and must be sanitized before landing in an
+        // HTML-capable field the desktop panel renders.
         ToolTip {
             title: "Echora".into(),
             description: format!("Volume {percent}%"),
@@ -130,11 +141,22 @@ impl Tray for EchoraTray {
 
     fn scroll(&mut self, delta: i32, orientation: Orientation) {
         let app = self.app.clone();
-        let current = TRAY_VOLUME_HINT.load(Ordering::Relaxed);
-        let new_volume = apply_scroll_delta(current, delta, orientation);
-        if new_volume == current {
+        // fetch_update (not load-then-compute-then-store) so that scroll
+        // notches arriving within the same D-Bus/mpv/SQLite round-trip each
+        // see the previous notch's result instead of all reading the same
+        // stale value and collapsing into one step -- the spawned task below
+        // still takes tens of milliseconds to land in `TRAY_VOLUME_HINT` via
+        // `set_playback_volume_impl`, but the hint itself is now updated
+        // synchronously right here, before that task ever runs.
+        let Ok(previous) =
+            TRAY_VOLUME_HINT.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |c| {
+                let n = apply_scroll_delta(c, delta, orientation);
+                (n != c).then_some(n)
+            })
+        else {
             return;
-        }
+        };
+        let new_volume = apply_scroll_delta(previous, delta, orientation);
         tauri::async_runtime::spawn(async move {
             let state = app.state::<AppState>();
             let _ = commands::playback::set_playback_volume_impl(&state, new_volume, true).await;
@@ -183,6 +205,11 @@ pub fn setup(app: &App) -> tauri::Result<()> {
         .get_webview_window("main")
         .expect("the main window is declared in tauri.conf.json");
 
+    // If `spawn()` (below, called separately from `lib.rs`) failed, there is
+    // no tray icon to bring the window back with once this hides it. Still
+    // recoverable: relaunching the app hits the single-instance plugin,
+    // which shows the existing hidden window instead of starting a second
+    // instance.
     let close_target = window.clone();
     window.on_window_event(move |event| {
         if let WindowEvent::CloseRequested { api, .. } = event {
@@ -200,12 +227,19 @@ pub fn setup(app: &App) -> tauri::Result<()> {
 /// desktop integration).
 pub async fn spawn(app: AppHandle) {
     let tray = EchoraTray { app };
-    match tray.spawn().await {
+    // Echora's own autostart launches the app before the desktop shell's
+    // StatusNotifierWatcher is necessarily up yet. The default
+    // `assume_sni_available: false` makes `ksni` hard-fail
+    // (`Error::Watcher`/`Error::WontShow`) in that ordinary case, with no
+    // retry -- so no tray for the whole session. `assume_sni_available(true)`
+    // tells `ksni` to register anyway and pick the service up once the
+    // watcher appears, instead of giving up immediately.
+    match tray.assume_sni_available(true).spawn().await {
         Ok(handle) => {
             let _ = TRAY_HANDLE.set(handle);
         }
         Err(err) => {
-            eprintln!("tray: session bus unavailable, tray icon disabled: {err}");
+            eprintln!("tray: could not register status-notifier item, tray icon disabled: {err}");
         }
     }
 }
