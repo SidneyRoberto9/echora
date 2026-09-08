@@ -68,16 +68,31 @@ Today three code paths can change volume and only one of them
 directly, silently skipping persistence — an existing bug this design
 fixes as a side effect, not a new requirement.
 
-- `set_playback_volume_impl(state: &AppState, app: &AppHandle, volume: u8, persist: bool)`
-  gains an `app: &AppHandle` parameter.
-- After successfully applying (`state.player.lock().await.set_volume(volume)`),
-  emit `app.emit("volume-changed", volume)`.
+`set_playback_volume_impl`'s signature does **not** change. The
+codebase already has an established mechanism for exactly this
+problem — `platform/mpris.rs`'s `APP_HANDLE: OnceLock<AppHandle>`,
+set once in `mpris::build()` and read by `mpris::notify()` so command
+functions that only take `State<AppState>` (no `AppHandle`) can still
+push events to the frontend. `notify()` isn't reused as-is here (it
+also recomputes queue/MPRIS-property state that's irrelevant to a
+volume change); instead `APP_HANDLE` itself becomes `pub(crate)` (it's
+already conceptually a generic "reach the frontend" handle per its own
+doc comment, not an MPRIS-private detail) and `set_playback_volume_impl`
+reads it directly:
+
+```rust
+if let Some(app) = crate::platform::mpris::APP_HANDLE.get() {
+    let _ = app.emit("volume-changed", volume);
+}
+```
+
 - `platform/mpris.rs`'s `set_volume` is changed to call
-  `commands::playback::set_playback_volume_impl(&state, &self.app, percent, true)`
+  `commands::playback::set_playback_volume_impl(&state, percent, true)`
   instead of `Player::set_volume` directly — this also makes MPRIS-set
-  volume persist for the first time.
+  volume persist for the first time (it doesn't today).
 - The tray (`ksni::Tray::scroll`, below) is the third caller, going
-  through the same function.
+  through the same function, with no signature threading needed there
+  either.
 
 This is the only place `volume-changed` is emitted — the tray, MPRIS,
 and the frontend's own slider all converge on one function, so there
@@ -109,28 +124,43 @@ Replace the `tauri::tray`/`MenuBuilder` implementation with a
 - `icon_pixmap()` — convert `app.default_window_icon()`'s RGBA bytes to
   the ARGB32 (network byte order) format `ksni::Icon` expects. This is
   a byte-order transform done once at startup, not a hot path.
-- `tool_tip()` — returns `"Echora — Volume {N}%"`, read from
-  `Player`'s cached `volume_percent()` (falling back to a generic
-  "Echora" tooltip if the player hasn't started yet, matching how
+- `tool_tip()` — returns a `ksni::ToolTip { title: "Echora".into(), description: "Volume {N}%".into(), ..Default::default() }`,
+  read from `Player`'s cached `volume_percent()` (falling back to a
+  generic tooltip if the player hasn't started yet, matching how
   `volume_percent()` already returns `None` pre-start elsewhere).
-- The `ksni::Handle` returned by spawning the tray must be kept alive
-  for the app's lifetime (e.g. `app.manage(handle)`) — unlike today's
-  `tauri::tray::TrayIconBuilder::build()`, `ksni` has no implicit
-  registry keeping the service alive if the handle is dropped.
+- The `ksni::Handle<EchoraTray>` returned by `tray.spawn().await?`
+  (via the `ksni::TrayMethods` trait) must be kept alive for the app's
+  lifetime — unlike today's `tauri::tray::TrayIconBuilder::build()`,
+  `ksni` has no implicit registry keeping the service alive if the
+  handle is dropped. Stored the same way `mpris.rs` stores its
+  `AppHandle` — a second `pub(crate) static TRAY_HANDLE: OnceLock<ksni::Handle<EchoraTray>>`
+  in `tray.rs`.
+- The tooltip only reflects a fresh volume automatically when the
+  *tray's own* `scroll` callback changes it (ksni republishes
+  properties after any `&mut self` trait callback runs — **verify
+  this empirically at implementation time**, it's the documented
+  behavior but not exhaustively confirmed against 0.3.6's actual
+  service loop). For the other two paths (frontend slider, MPRIS),
+  nothing inside `ksni`'s event loop ran, so the same choke point in
+  §1 additionally calls `TRAY_HANDLE.get()` → `handle.update(|_| {}).await`
+  after emitting `volume-changed`, forcing `ksni` to re-read
+  `tool_tip()` and push it over D-Bus. Calling `update()` a third time
+  from inside the tray's own `scroll` callback is skipped — redundant
+  at best, and calling it while already inside that callback risks
+  re-entrant locking inside `ksni`'s service (unconfirmed; avoided
+  rather than tested).
 - The window-close-hides-to-tray wiring (`on_window_event` /
   `WindowEvent::CloseRequested`) is unrelated to the menu/D-Bus backend
   and stays exactly as-is.
 
-### 3. Dependency risk to resolve during implementation
+### 3. Dependency resolution (confirmed, not just a risk to watch)
 
-`mpris-server` (already a dependency, `features = ["tokio"]`) pulls in
-`zbus` transitively; `ksni` also depends on `zbus`. Check both crates'
-`zbus` version ranges before pinning `ksni`'s version — a mismatch
-would link two copies of `zbus`, which works but costs binary size and
-conflicts with this project's #1 priority (lightness). Prefer whatever
-`ksni` version's `zbus` range overlaps `mpris-server`'s current one; if
-none does, this is worth a second look before proceeding, not a "ship
-it anyway."
+`Cargo.lock` pins `zbus 5.19.0` (via `mpris-server 0.10.0`). `ksni
+0.3.6`'s `Cargo.toml` declares `zbus = { version = "5", default-features = false }`
+— same major version, no duplicate `zbus` copy. `ksni`'s default
+feature is `tokio` (enables `zbus/tokio`), matching Tauri's own tokio
+runtime — `ksni = "0.3.6"` with default features needs no feature-flag
+changes. Add as a plain `ksni = "0.3.6"` dependency.
 
 ## Frontend — `src/hooks/usePlayback.ts`
 
@@ -148,11 +178,15 @@ it anyway."
 ## Testing
 
 - `commands/playback.rs` already unit-tests `set_playback_volume_impl`
-  (persist / no-persist cases) — extend these to assert the
-  `volume-changed` event fires with the expected payload after a
-  successful apply (Tauri's `#[cfg(test)]` mock app handle supports
-  asserting emitted events; follow whatever pattern MPRIS's own tests,
-  if any, already use for this app).
+  (persist / no-persist cases) — these keep passing unchanged: in the
+  test binary `APP_HANDLE`/`TRAY_HANDLE` are never `.set()` (no real
+  Tauri app is constructed in these tests, matching `mpris.rs`, which
+  has no unit tests of its own `notify()` emission either), so both
+  `if let Some(...)` guards are `None` and the emit/update calls are
+  no-ops. No new automated test asserts the event actually fires —
+  that's a manual-verification item, consistent with this project's
+  existing precedent of not unit-testing MPRIS's D-Bus-facing
+  behavior.
 - The dB-normalization-style pure-function split doesn't apply here —
   scroll-delta-to-volume-delta is a one-line clamp, not worth
   extracting/unit-testing in isolation.
