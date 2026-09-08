@@ -27,8 +27,12 @@ pub async fn seek_playback(state: State<'_, AppState>, seconds: f64) -> Result<(
 /// `persist` is `false` for every tick of a volume slider drag and `true`
 /// only for the trailing call once the user stops moving it (debounced on
 /// the frontend, see `usePlayback.setVolume` — P1-4). The live mpv volume
-/// always applies immediately either way; only the SQLite write is
-/// conditional, so a drag doesn't turn into ~100 writes.
+/// always applies immediately either way; the SQLite write, the frontend
+/// `volume-changed` emit, the tray's `ksni` service update, and the MPRIS
+/// `Volume` property push are all conditional on `persist`, so a drag
+/// doesn't turn into ~100 writes/emits/D-Bus round-trips self-mirroring a
+/// value the frontend already set. External callers (tray scroll, MPRIS)
+/// always pass `persist: true`, so cross-process mirroring is unaffected.
 #[tauri::command]
 pub async fn set_playback_volume(
     state: State<'_, AppState>,
@@ -56,12 +60,22 @@ pub(crate) async fn set_playback_volume_impl(
     }
     let result = state.player.lock().await.set_volume(volume).await;
 
+    // Unconditional: the tray's own `scroll()` reads this at any time,
+    // including mid-drag, so it needs the true current value even on the
+    // ~100 `persist: false` ticks a slider drag sends.
     crate::platform::tray::TRAY_VOLUME_HINT.store(volume, std::sync::atomic::Ordering::Relaxed);
-    if let Some(app) = crate::platform::mpris::APP_HANDLE.get() {
-        let _ = app.emit("volume-changed", volume);
-    }
-    if let Some(handle) = crate::platform::tray::TRAY_HANDLE.get() {
-        let _ = handle.update(|_| {}).await;
+    if persist {
+        if let Some(app) = crate::platform::mpris::APP_HANDLE.get() {
+            let _ = app.emit("volume-changed", volume);
+        }
+        if let Some(handle) = crate::platform::tray::TRAY_HANDLE.get() {
+            let _ = handle.update(|_| {}).await;
+        }
+        if let Some(server) = state.mpris.as_ref() {
+            let _ = server
+                .properties_changed([mpris_server::Property::Volume(volume as f64 / 100.0)])
+                .await;
+        }
     }
 
     result

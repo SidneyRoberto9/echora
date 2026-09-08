@@ -393,9 +393,17 @@ impl PlayerInterface for MprisHandler {
     }
 
     async fn set_volume(&self, volume: Volume) -> zbus::Result<()> {
-        let state = self.app.state::<AppState>();
-        let percent = (volume.max(0.0) * 100.0).round() as u8;
-        let _ = commands::playback::set_playback_volume_impl(&state, percent, true).await;
+        // Spawned, not awaited directly, like every other method in this
+        // impl (see the doc comment at the top of this block): now that
+        // `set_playback_volume_impl` itself awaits `properties_changed`
+        // (not `Send + Sync`), awaiting it inline here would carry that
+        // bound back into this trait method's own required-`Sync` future.
+        let app = self.app.clone();
+        tauri::async_runtime::spawn(async move {
+            let state = app.state::<AppState>();
+            let percent = (volume.max(0.0) * 100.0).round() as u8;
+            let _ = commands::playback::set_playback_volume_impl(&state, percent, true).await;
+        });
         Ok(())
     }
 
