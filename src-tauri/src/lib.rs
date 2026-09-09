@@ -180,6 +180,13 @@ pub fn run() {
                 && let Some(state) = app_handle.try_state::<AppState>()
             {
                 tauri::async_runtime::block_on(async {
+                    // Same "record before it stops being current" rule as
+                    // every other way the current track changes (see
+                    // `commands::record_current_completion`'s own doc
+                    // comment) -- quitting mid-track is the one case that
+                    // isn't a queue command, so it has to be recorded here
+                    // instead, before the position it reads is gone.
+                    let _ = commands::record_current_completion(&state).await;
                     let _ = state.player.lock().await.shutdown().await;
                 });
             }
