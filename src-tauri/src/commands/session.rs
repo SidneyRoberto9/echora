@@ -8,26 +8,41 @@ use crate::state::AppState;
 
 /// Plain function (not `#[tauri::command]`) so it's testable without a real
 /// Tauri `App` — the commands below are thin wrappers around it.
-pub(crate) fn start_session_impl(state: &AppState, moods: &[(String, u8)]) -> Result<SessionInfo> {
+pub(crate) async fn start_session_impl(
+    state: &AppState,
+    moods: &[(String, u8)],
+) -> Result<SessionInfo> {
     for (mood_id, _) in moods {
         state.moods.get(mood_id)?;
     }
+    // `Db::start_session` ends whatever session is currently open at the SQL
+    // level before this returns -- record how the outgoing session's current
+    // track went first, same "record before it stops being current" rule as
+    // every other session/track transition (see
+    // `commands::record_current_completion`'s doc comment). This is the most
+    // common way a session actually ends in practice: picking a new mood.
+    super::record_current_completion(state).await?;
     let session = state.db.lock().unwrap().start_session(moods)?;
     state.queue.lock().unwrap().clear();
     Ok(session)
 }
 
-pub(crate) fn end_session_impl(state: &AppState) -> Result<()> {
+pub(crate) async fn end_session_impl(state: &AppState) -> Result<()> {
     let current = state.db.lock().unwrap().current_session()?;
     let session = current.ok_or(EchoraError::NoActiveSession)?;
+    // Before the session (and the completion this would attribute to it)
+    // stops existing -- same "record before it stops being current" rule
+    // as every queue-command path (see
+    // `commands::record_current_completion`'s doc comment).
+    super::record_current_completion(state).await?;
     state.db.lock().unwrap().end_session(session.id)?;
     state.queue.lock().unwrap().clear();
     Ok(())
 }
 
 #[tauri::command]
-pub fn start_session(state: State<AppState>, mood_id: String) -> Result<SessionInfo> {
-    start_session_impl(&state, &[(mood_id, 100)])
+pub async fn start_session(state: State<'_, AppState>, mood_id: String) -> Result<SessionInfo> {
+    start_session_impl(&state, &[(mood_id, 100)]).await
 }
 
 /// The real "choose a mood, get music" entry point: creates the session,
@@ -56,8 +71,8 @@ pub async fn start_mixed_session(
 }
 
 #[tauri::command]
-pub fn end_session(state: State<AppState>) -> Result<()> {
-    end_session_impl(&state)
+pub async fn end_session(state: State<'_, AppState>) -> Result<()> {
+    end_session_impl(&state).await
 }
 
 #[tauri::command]
@@ -156,15 +171,17 @@ mod tests {
         }
     }
 
-    #[test]
-    fn starting_a_session_with_an_unknown_mood_errors() {
+    #[tokio::test]
+    async fn starting_a_session_with_an_unknown_mood_errors() {
         let state = test_state();
-        let err = start_session_impl(&state, &[("not-a-real-mood".to_string(), 100)]).unwrap_err();
+        let err = start_session_impl(&state, &[("not-a-real-mood".to_string(), 100)])
+            .await
+            .unwrap_err();
         assert!(matches!(err, EchoraError::UnknownMood(_)));
     }
 
-    #[test]
-    fn starting_a_session_with_a_known_mood_clears_the_queue() {
+    #[tokio::test]
+    async fn starting_a_session_with_a_known_mood_clears_the_queue() {
         let state = test_state();
         let mood_id = state.moods.list()[0].id.clone();
         state.queue.lock().unwrap().add_candidates([Track {
@@ -175,17 +192,46 @@ mod tests {
             thumbnail_url: None,
         }]);
 
-        let session = start_session_impl(&state, &[(mood_id.clone(), 100)]).unwrap();
+        let session = start_session_impl(&state, &[(mood_id.clone(), 100)])
+            .await
+            .unwrap();
 
         assert_eq!(session.moods.len(), 1);
         assert_eq!(session.moods[0].mood_id, mood_id);
         assert!(state.queue.lock().unwrap().current().is_none());
     }
 
-    #[test]
-    fn ending_a_session_with_none_active_errors() {
+    #[tokio::test]
+    async fn starting_a_new_session_records_completion_for_the_outgoing_session() {
         let state = test_state();
-        let err = end_session_impl(&state).unwrap_err();
+        let mood_id = state.moods.list()[0].id.clone();
+        let other_mood_id = state.moods.list()[1].id.clone();
+        start_session_impl(&state, &[(mood_id, 100)]).await.unwrap();
+        state.queue.lock().unwrap().add_candidates([Track {
+            id: "a".into(),
+            title: "a".into(),
+            artist: None,
+            duration_seconds: None,
+            thumbnail_url: None,
+        }]);
+
+        start_session_impl(&state, &[(other_mood_id, 100)])
+            .await
+            .unwrap();
+
+        let sessions = state.db.lock().unwrap().list_sessions(10, 0).unwrap();
+        // Most recent first (see `Db::list_sessions`) -- the outgoing
+        // session that was just switched away from is sessions[1].
+        assert_eq!(
+            sessions[1].track_count, 1,
+            "switching moods must record how the outgoing session's current track went"
+        );
+    }
+
+    #[tokio::test]
+    async fn ending_a_session_with_none_active_errors() {
+        let state = test_state();
+        let err = end_session_impl(&state).await.unwrap_err();
         assert!(matches!(err, EchoraError::NoActiveSession));
     }
 
@@ -215,11 +261,11 @@ mod tests {
         assert_eq!(stats.category_breakdown[0].session_count, 1.0);
     }
 
-    #[test]
-    fn ending_the_active_session_clears_the_queue() {
+    #[tokio::test]
+    async fn ending_the_active_session_clears_the_queue() {
         let state = test_state();
         let mood_id = state.moods.list()[0].id.clone();
-        start_session_impl(&state, &[(mood_id, 100)]).unwrap();
+        start_session_impl(&state, &[(mood_id, 100)]).await.unwrap();
         state.queue.lock().unwrap().add_candidates([Track {
             id: "a".into(),
             title: "a".into(),
@@ -228,7 +274,7 @@ mod tests {
             thumbnail_url: None,
         }]);
 
-        end_session_impl(&state).unwrap();
+        end_session_impl(&state).await.unwrap();
 
         assert!(state.queue.lock().unwrap().current().is_none());
         assert!(
@@ -239,6 +285,28 @@ mod tests {
                 .current_session()
                 .unwrap()
                 .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn ending_the_active_session_records_completion_for_the_current_track() {
+        let state = test_state();
+        let mood_id = state.moods.list()[0].id.clone();
+        start_session_impl(&state, &[(mood_id, 100)]).await.unwrap();
+        state.queue.lock().unwrap().add_candidates([Track {
+            id: "a".into(),
+            title: "a".into(),
+            artist: None,
+            duration_seconds: None,
+            thumbnail_url: None,
+        }]);
+
+        end_session_impl(&state).await.unwrap();
+
+        let sessions = state.db.lock().unwrap().list_sessions(10, 0).unwrap();
+        assert_eq!(
+            sessions[0].track_count, 1,
+            "ending a session must record how the current track went before it stops existing"
         );
     }
 }

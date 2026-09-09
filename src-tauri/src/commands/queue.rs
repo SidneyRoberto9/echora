@@ -205,6 +205,15 @@ pub(crate) async fn auto_advance_from_watcher(
     Ok(advanced)
 }
 
+/// Records how the track being left went, then moves the queue back one
+/// slot. Split out from `queue_previous` so the recording-before-going-back
+/// invariant is unit-testable against a plain `&AppState`, the same
+/// reasoning as `advance_queue_if_expected`.
+async fn record_and_go_back(state: &AppState) -> Result<Option<Track>> {
+    super::record_current_completion(state).await?;
+    Ok(state.queue.lock().unwrap().previous().cloned())
+}
+
 /// Goes back one track and starts playing it. `None` if already at the
 /// first track of the queue — callers should just seek the current track
 /// to 0 in that case rather than treating it as an error.
@@ -213,7 +222,7 @@ pub async fn queue_previous(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<Option<Track>> {
-    let went_back = state.queue.lock().unwrap().previous().cloned();
+    let went_back = record_and_go_back(&state).await?;
     if let Some(track) = &went_back {
         super::resolve_and_load(&app, &state, track).await?;
     }
@@ -280,9 +289,9 @@ pub async fn ensure_queue_topped_up(
 /// session was ever started for it) would append behind that track
 /// instead of replacing it, since `Queue::add_candidates` only makes a
 /// track current when nothing is current yet.
-pub(crate) fn make_room_for_single_track(state: &AppState) -> Result<()> {
+pub(crate) async fn make_room_for_single_track(state: &AppState) -> Result<()> {
     if state.db.lock().unwrap().current_session()?.is_some() {
-        super::session::end_session_impl(state)?;
+        super::session::end_session_impl(state).await?;
     } else {
         state.queue.lock().unwrap().clear();
     }
@@ -300,7 +309,7 @@ pub async fn play_single_track(
     state: State<'_, AppState>,
     track: Track,
 ) -> Result<()> {
-    make_room_for_single_track(&state)?;
+    make_room_for_single_track(&state).await?;
     state.queue.lock().unwrap().add_candidates([track.clone()]);
     super::resolve_and_load(&app, &state, &track).await
 }
@@ -332,7 +341,7 @@ pub(crate) async fn play_scene_impl(
     let Some(first) = tracks.first().cloned() else {
         return Err(EchoraError::QueueEmpty);
     };
-    make_room_for_single_track(state)?;
+    make_room_for_single_track(state).await?;
     state.queue.lock().unwrap().add_candidates(tracks);
     super::resolve_and_load(app, state, &first).await
 }
@@ -400,8 +409,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn make_room_for_single_track_ends_an_active_session_and_clears_its_queue() {
+    #[tokio::test]
+    async fn make_room_for_single_track_ends_an_active_session_and_clears_its_queue() {
         let state = test_state();
         let mood_id = state.moods.list()[0].id.clone();
         state
@@ -416,7 +425,7 @@ mod tests {
             .unwrap()
             .add_candidates([track("a"), track("b")]);
 
-        make_room_for_single_track(&state).unwrap();
+        make_room_for_single_track(&state).await.unwrap();
 
         assert!(
             state
@@ -430,8 +439,8 @@ mod tests {
         assert!(state.queue.lock().unwrap().current().is_none());
     }
 
-    #[test]
-    fn make_room_for_single_track_clears_a_leftover_ad_hoc_track_with_no_session() {
+    #[tokio::test]
+    async fn make_room_for_single_track_clears_a_leftover_ad_hoc_track_with_no_session() {
         let state = test_state();
         state
             .queue
@@ -448,7 +457,7 @@ mod tests {
                 .is_none()
         );
 
-        make_room_for_single_track(&state).unwrap();
+        make_room_for_single_track(&state).await.unwrap();
 
         assert!(state.queue.lock().unwrap().current().is_none());
     }
@@ -535,6 +544,30 @@ mod tests {
 
         assert_eq!(advance_queue_if_expected(&state, Some("a")), None);
         assert_eq!(advance_queue_if_expected(&state, None), None);
+    }
+
+    #[tokio::test]
+    async fn record_and_go_back_records_completion_for_the_track_it_leaves() {
+        let state = test_state();
+        {
+            let db = state.db.lock().unwrap();
+            db.start_session(&[("villain".to_string(), 100)]).unwrap();
+        }
+        state
+            .queue
+            .lock()
+            .unwrap()
+            .add_candidates([track("a"), track("b")]);
+        state.queue.lock().unwrap().next(); // current is now "b"
+
+        let went_back = record_and_go_back(&state).await.unwrap();
+
+        assert_eq!(went_back.unwrap().id, "a");
+        let sessions = state.db.lock().unwrap().list_sessions(10, 0).unwrap();
+        assert_eq!(
+            sessions[0].track_count, 1,
+            "going back must record how the left track went, same as queue_next/queue_skip_to"
+        );
     }
 
     #[tokio::test]

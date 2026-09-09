@@ -165,7 +165,7 @@ pub(crate) async fn start_session_and_play(
     state: &AppState,
     moods: &[(String, u8)],
 ) -> Result<SessionInfo> {
-    let session = crate::commands::session::start_session_impl(state, moods)?;
+    let session = crate::commands::session::start_session_impl(state, moods).await?;
     top_up_queue(app, state, moods).await?;
 
     let current = state.queue.lock().unwrap().current().cloned();
