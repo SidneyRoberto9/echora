@@ -63,6 +63,82 @@ pub fn filter_out_unavailable(
         .collect()
 }
 
+/// Below this, a "vibe" search result is almost always a meme clip or
+/// Short, not a song — measured junk against real mood queries topped out
+/// at 43s, and the shortest real song/music-video seen survive at 151s and
+/// 178s. Never raise this much further without re-measuring: it's already
+/// close to cutting real short tracks. A `None` duration (most commonly a
+/// 24/7 live radio stream) is let through unfiltered — this floor doesn't
+/// attempt to classify live content.
+const MIN_TRACK_DURATION_SECONDS: u32 = 60;
+
+/// Title/channel substrings strongly associated with non-music content that
+/// still matches mood "vibe" queries (trailers, reactions, gameplay, vlogs).
+/// Case-insensitive substring match, not a classifier.
+///
+/// ponytail: this list is tuned data, not a solved problem — it will leak
+/// (a vlog with none of these words, a song that happens to contain one).
+/// Extend it from real leakage instead of trying to enumerate every
+/// non-music genre upfront. Deliberately excludes generic words a real
+/// song title collides with — e.g. NOT "habits" (Tove Lo's "Habits (Stay
+/// High)") and NOT "compilation" (measured: YouTube itself categorizes
+/// long fan-curated DJ mixes titled "... mix compilation" as `Music`,
+/// unlike the entries below, which were confirmed non-music results
+/// against real mood queries — see mood_engine research).
+const NON_MUSIC_KEYWORDS: &[&str] = &[
+    "trailer",
+    "movie clip",
+    "full episode",
+    "interview",
+    "reaction",
+    "react to",
+    "vlog",
+    "gameplay",
+    "walkthrough",
+    "let's play",
+    "tutorial",
+    "explained",
+    "review",
+    "unboxing",
+    "asmr",
+    "podcast",
+    "prank",
+    "shorts",
+    "days in my life",
+    "get ready with me",
+    "grwm",
+    "tips to",
+    "edit audio",
+    "subliminal",
+    "to become",
+    "guide to",
+];
+
+/// Drops candidates that a mood's "vibe" search phrase pulled in but that
+/// aren't actually music — a duration floor for meme clips/Shorts, plus a
+/// title/channel keyword denylist for trailers, reactions, vlogs, etc. (see
+/// the constants above). This is the content-type gate the pipeline never
+/// had: everything upstream (yt-dlp `ytsearch`) returns whatever YouTube's
+/// search ranks for the query, music or not.
+pub fn filter_non_music(tracks: Vec<Track>) -> Vec<Track> {
+    tracks
+        .into_iter()
+        .filter(|track| {
+            if let Some(duration) = track.duration_seconds
+                && duration < MIN_TRACK_DURATION_SECONDS
+            {
+                return false;
+            }
+            let haystack = format!(
+                "{} {}",
+                track.title.to_lowercase(),
+                track.artist.as_deref().unwrap_or("").to_lowercase()
+            );
+            !NON_MUSIC_KEYWORDS.iter().any(|kw| haystack.contains(kw))
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -85,6 +161,21 @@ mod tests {
             title: id.into(),
             artist: None,
             duration_seconds: None,
+            thumbnail_url: None,
+        }
+    }
+
+    fn track_with(
+        id: &str,
+        title: &str,
+        artist: Option<&str>,
+        duration_seconds: Option<u32>,
+    ) -> Track {
+        Track {
+            id: id.into(),
+            title: title.into(),
+            artist: artist.map(String::from),
+            duration_seconds,
             thumbnail_url: None,
         }
     }
@@ -150,6 +241,148 @@ mod tests {
     #[test]
     fn filter_out_unavailable_of_empty_input_is_empty() {
         assert!(filter_out_unavailable(vec![], |_| true).is_empty());
+    }
+
+    #[test]
+    fn filter_non_music_drops_tracks_shorter_than_the_floor() {
+        let tracks = vec![track_with("short", "some meme clip", None, Some(15))];
+        assert!(filter_non_music(tracks).is_empty());
+    }
+
+    #[test]
+    fn filter_non_music_keeps_tracks_at_or_above_the_floor() {
+        let tracks = vec![track_with("song", "a real song", None, Some(60))];
+        assert_eq!(filter_non_music(tracks).len(), 1);
+    }
+
+    #[test]
+    fn filter_non_music_keeps_unknown_duration_tracks() {
+        // Most commonly a 24/7 live radio stream -- not classified here.
+        let tracks = vec![track_with("live", "lofi radio", None, None)];
+        assert_eq!(filter_non_music(tracks).len(), 1);
+    }
+
+    #[test]
+    fn filter_non_music_drops_tracks_matching_a_denylist_keyword_in_the_title() {
+        let tracks = vec![track_with(
+            "trailer",
+            "Movie Official Trailer",
+            None,
+            Some(120),
+        )];
+        assert!(filter_non_music(tracks).is_empty());
+    }
+
+    #[test]
+    fn filter_non_music_denylist_match_is_case_insensitive() {
+        let tracks = vec![track_with(
+            "react",
+            "REACTION to this song",
+            None,
+            Some(300),
+        )];
+        assert!(filter_non_music(tracks).is_empty());
+    }
+
+    #[test]
+    fn filter_non_music_drops_tracks_matching_a_denylist_keyword_in_the_channel() {
+        let tracks = vec![track_with(
+            "vlog",
+            "a day in the city",
+            Some("Some Vlog Channel"),
+            Some(600),
+        )];
+        assert!(filter_non_music(tracks).is_empty());
+    }
+
+    #[test]
+    fn filter_non_music_keeps_real_songs() {
+        let tracks = vec![track_with(
+            "keep",
+            "Actual Song Title",
+            Some("Real Artist"),
+            Some(210),
+        )];
+        assert_eq!(filter_non_music(tracks).len(), 1);
+    }
+
+    #[test]
+    fn filter_non_music_drops_tiktok_style_edit_audio_compilations() {
+        // Real measured leak: "edit audios for your villain arc" -- short
+        // decontextualized audio snippets, not full songs (categories:
+        // Entertainment, not Music).
+        let tracks = vec![track_with(
+            "edit",
+            "Edit audios for your villain arc + timestamps",
+            None,
+            Some(1552),
+        )];
+        assert!(filter_non_music(tracks).is_empty());
+    }
+
+    #[test]
+    fn filter_non_music_drops_subliminal_audio() {
+        let tracks = vec![track_with(
+            "sub",
+            "I AM POWER Divine Authority Unstoppable Force (subliminal)",
+            None,
+            Some(768),
+        )];
+        assert!(filter_non_music(tracks).is_empty());
+    }
+
+    #[test]
+    fn filter_non_music_drops_self_help_vlogs_phrased_as_becoming_something() {
+        // Real measured leak: "7 Simple Habits to Become THAT GIRL".
+        let tracks = vec![track_with(
+            "vlog2",
+            "7 Simple Habits to Become THAT GIRL",
+            None,
+            Some(1037),
+        )];
+        assert!(filter_non_music(tracks).is_empty());
+    }
+
+    #[test]
+    fn filter_non_music_drops_guide_style_vlogs() {
+        let tracks = vec![track_with(
+            "vlog3",
+            "A guide to classy woman energy",
+            None,
+            Some(1258),
+        )];
+        assert!(filter_non_music(tracks).is_empty());
+    }
+
+    #[test]
+    fn filter_non_music_keeps_a_song_whose_title_contains_habits() {
+        // Tove Lo's "Habits (Stay High)" is exactly why "habits" alone is
+        // NOT in the denylist -- only the more specific vlog phrasing is.
+        let tracks = vec![track_with(
+            "tovelo",
+            "Tove Lo - Habits (Stay High)",
+            Some("Tove Lo"),
+            Some(230),
+        )];
+        assert_eq!(filter_non_music(tracks).len(), 1);
+    }
+
+    #[test]
+    fn filter_non_music_keeps_a_long_fan_curated_mix_labeled_compilation() {
+        // Measured: YouTube itself categorizes this as Music -- "compilation"
+        // is deliberately NOT in the denylist.
+        let tracks = vec![track_with(
+            "mix",
+            "BADASS GIRL energy (mix compilation) girl boss playlist",
+            None,
+            Some(6393),
+        )];
+        assert_eq!(filter_non_music(tracks).len(), 1);
+    }
+
+    #[test]
+    fn filter_non_music_of_empty_input_is_empty() {
+        assert!(filter_non_music(vec![]).is_empty());
     }
 
     #[test]

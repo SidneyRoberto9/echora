@@ -16,6 +16,8 @@ pub struct GenerationConfig {
     pub queries_per_round: usize,
     /// Results requested per query — kept small on purpose (see the
     /// product brief's "don't load hundreds of results ahead of time").
+    /// Padded above the actual target count to absorb the ~20-40% that
+    /// `candidates::filter_non_music` measurably drops as non-music.
     pub results_per_query: u32,
     /// How many of the most recent sessions count as "recently played"
     /// for the repetition penalty.
@@ -26,7 +28,7 @@ impl Default for GenerationConfig {
     fn default() -> Self {
         GenerationConfig {
             queries_per_round: 2,
-            results_per_query: 8,
+            results_per_query: 12,
             recent_session_window: 5,
         }
     }
@@ -49,7 +51,8 @@ pub fn build_scoring_context(db: &Db, recent_session_window: i64) -> Result<Scor
 /// The core mood-engine flow, mix-aware: splits the round's query budget
 /// across 1-3 moods proportional to weight (see
 /// `candidates::query_counts_for_weights`), searches, dedups, drops
-/// tracks already known unavailable (see `ScoringContext::unavailable_tracks`),
+/// non-music results (see `candidates::filter_non_music`) and tracks
+/// already known unavailable (see `ScoringContext::unavailable_tracks`),
 /// scores, shuffles. Same partial-failure rule as before: the last error is
 /// propagated only if every query across every mood in the mix failed —
 /// a mood whose results are entirely filtered out as unavailable simply
@@ -87,13 +90,15 @@ pub async fn generate_mixed_candidates<R: tauri::Runtime>(
 }
 
 /// The pure, network-free tail of `generate_mixed_candidates`: dedup, drop
+/// non-music results the search terms pulled in anyway, drop
 /// known-unavailable tracks, score and shuffle. Split out so this logic is
 /// unit-testable without spawning the yt-dlp sidecar (see the `#[ignore]`d
 /// smoke test below for the full-flow, real-network coverage).
 fn rank_candidates(raw: Vec<Track>, ctx: &ScoringContext, rng: &mut impl Rng) -> Vec<Track> {
     let deduped = candidates::dedup(raw);
+    let musical = candidates::filter_non_music(deduped);
     let available =
-        candidates::filter_out_unavailable(deduped, |id| ctx.unavailable_tracks.contains(id));
+        candidates::filter_out_unavailable(musical, |id| ctx.unavailable_tracks.contains(id));
     scoring::shuffle_by_score(available, ctx, rng)
 }
 
