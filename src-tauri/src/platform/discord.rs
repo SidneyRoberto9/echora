@@ -122,6 +122,80 @@ async fn connect() -> Option<UnixStream> {
     None
 }
 
+/// What's currently true about playback, mapped from the same
+/// queue/player state `mpris::notify` already reads. `Idle` covers both
+/// "nothing loaded" and "the feature is enabled but disconnected" —
+/// either way, Discord shows no activity.
+#[allow(dead_code)]
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum PresenceState {
+    Idle,
+    Playing {
+        title: String,
+        artist: Option<String>,
+        position_secs: f64,
+    },
+    Paused {
+        title: String,
+        artist: Option<String>,
+    },
+}
+
+#[allow(dead_code)]
+fn activity_value(state: &PresenceState, now_unix: f64) -> serde_json::Value {
+    match state {
+        PresenceState::Idle => serde_json::Value::Null,
+        PresenceState::Playing {
+            title,
+            artist,
+            position_secs,
+        } => {
+            let start = (now_unix - position_secs).max(0.0) as i64;
+            serde_json::json!({
+                "details": sanitize_field(title, MAX_FIELD_BYTES),
+                "state": sanitize_field(artist.as_deref().unwrap_or(""), MAX_FIELD_BYTES),
+                "timestamps": { "start": start },
+            })
+        }
+        PresenceState::Paused { title, artist } => {
+            let label = format!("Paused — {}", artist.as_deref().unwrap_or(""));
+            serde_json::json!({
+                "details": sanitize_field(title, MAX_FIELD_BYTES),
+                "state": sanitize_field(&label, MAX_FIELD_BYTES),
+            })
+        }
+    }
+}
+
+#[allow(dead_code)]
+fn now_unix() -> f64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs_f64()
+}
+
+static NONCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Builds the full `SET_ACTIVITY` IPC command for the given state.
+/// `nonce` only needs to be unique per outgoing request for this
+/// process's lifetime, per the protocol — a monotonic counter is
+/// simpler than pulling in a UUID dependency for it.
+#[allow(dead_code)]
+fn set_activity_frame(state: &PresenceState) -> serde_json::Value {
+    let nonce = NONCE
+        .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        .to_string();
+    serde_json::json!({
+        "cmd": "SET_ACTIVITY",
+        "args": {
+            "pid": std::process::id(),
+            "activity": activity_value(state, now_unix()),
+        },
+        "nonce": nonce,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -172,5 +246,47 @@ mod tests {
         assert_eq!(paths.len(), 10);
         assert_eq!(paths[0], std::path::PathBuf::from("/run/user/1000/discord-ipc-0"));
         assert_eq!(paths[9], std::path::PathBuf::from("/run/user/1000/discord-ipc-9"));
+    }
+
+    #[test]
+    fn activity_value_for_idle_is_null() {
+        assert_eq!(activity_value(&PresenceState::Idle, 1000.0), serde_json::Value::Null);
+    }
+
+    #[test]
+    fn activity_value_for_playing_sets_start_timestamp_from_position() {
+        let state = PresenceState::Playing {
+            title: "Song".into(),
+            artist: Some("Artist".into()),
+            position_secs: 30.0,
+        };
+        let value = activity_value(&state, 1000.0);
+        assert_eq!(value["details"], "Song");
+        assert_eq!(value["state"], "Artist");
+        assert_eq!(value["timestamps"]["start"], 970);
+    }
+
+    #[test]
+    fn activity_value_for_paused_omits_timestamps_and_labels_state() {
+        let state = PresenceState::Paused {
+            title: "Song".into(),
+            artist: Some("Artist".into()),
+        };
+        let value = activity_value(&state, 1000.0);
+        assert_eq!(value["details"], "Song");
+        assert_eq!(value["state"], "Paused — Artist");
+        assert!(value.get("timestamps").is_none());
+    }
+
+    #[test]
+    fn activity_value_sanitizes_title_and_artist() {
+        let state = PresenceState::Playing {
+            title: "Song\u{0007}".into(),
+            artist: Some("  Art   ist  ".into()),
+            position_secs: 0.0,
+        };
+        let value = activity_value(&state, 1000.0);
+        assert_eq!(value["details"], "Song");
+        assert_eq!(value["state"], "Art ist");
     }
 }
