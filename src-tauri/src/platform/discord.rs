@@ -206,7 +206,6 @@ pub struct Handle {
 /// Discord is installed or the feature is enabled -- the task itself
 /// checks `enabled` before doing any IO, and idles (re-checking every
 /// `RECONNECT_INTERVAL`) whenever Discord isn't reachable.
-#[allow(dead_code)]
 pub fn spawn() -> Handle {
     let (tx, rx) = watch::channel(PresenceState::Idle);
     let enabled = Arc::new(AtomicBool::new(false));
@@ -256,7 +255,6 @@ pub(crate) async fn notify_from_state(handle: &Handle, state: &crate::state::App
 /// (rather than waiting up to `RECONNECT_INTERVAL`), so a Settings
 /// toggle takes effect right away -- `watch::Sender::send` always
 /// notifies waiting receivers, even when resending the same value.
-#[allow(dead_code)]
 pub fn set_enabled(handle: &Handle, enabled: bool) {
     handle.enabled.store(enabled, std::sync::atomic::Ordering::Relaxed);
     let current = handle.tx.borrow().clone();

@@ -88,6 +88,8 @@ pub fn run() {
 
             let mpris =
                 tauri::async_runtime::block_on(platform::mpris::build(app.handle().clone()));
+            let discord = platform::discord::spawn();
+            platform::discord::set_enabled(&discord, initial_settings.discord_presence_enabled);
 
             app.manage(AppState {
                 db: Mutex::new(db),
@@ -97,6 +99,7 @@ pub fn run() {
                 prefetch: media::prefetch::Prefetch::new(),
                 player: tokio::sync::Mutex::new(player),
                 mpris,
+                discord: Some(discord),
                 sponsorblock_segments: Mutex::new(Vec::new()),
                 app_dir: app_dir.clone(),
                 crash_reporting_enabled: crash_reporting_enabled.clone(),

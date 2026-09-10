@@ -30,6 +30,10 @@ pub struct AppState {
     /// `None` when the D-Bus session bus wasn't reachable at startup — MPRIS
     /// is a nice-to-have desktop integration, never a startup requirement.
     pub mpris: Option<mpris::Handle>,
+    /// Always `Some` outside tests (`platform::discord::spawn()` never
+    /// fails) — kept optional so test fixtures can pass `None` instead of
+    /// spawning a real background task, matching `mpris` above.
+    pub discord: Option<crate::platform::discord::Handle>,
     /// Skip-segment data for whatever track is currently playing, kept only
     /// in memory for the current playback session (see ADR 0009) —
     /// populated/cleared by `media::sponsorblock::watch`.

@@ -92,6 +92,9 @@ pub fn update_settings(
         std::sync::atomic::Ordering::Relaxed,
     );
     autostart::sync(&app, next.autostart_enabled)?;
+    if let Some(handle) = state.discord.as_ref() {
+        crate::platform::discord::set_enabled(handle, next.discord_presence_enabled);
+    }
     Ok(next)
 }
 

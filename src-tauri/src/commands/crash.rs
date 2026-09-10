@@ -79,6 +79,7 @@ mod tests {
                 Arc::new(AtomicBool::new(false)),
             )),
             mpris: None,
+            discord: None,
             sponsorblock_segments: Mutex::new(Vec::new()),
             app_dir,
             crash_reporting_enabled: Arc::new(AtomicBool::new(crash_reporting_enabled)),
