@@ -85,15 +85,31 @@ fn encode_frame(opcode: i32, payload: &serde_json::Value) -> Vec<u8> {
     buf
 }
 
+/// Sandboxed Discord packages don't put their IPC socket in the runtime
+/// directory itself — Flatpak binds it under `<runtime>/app/<app-id>`
+/// and Snap under `<runtime>/snap.discord`. Searching only the bare
+/// runtime directory silently never finds a Flatpak Discord, which is
+/// how most Linux users install it.
+const SANDBOX_SUBDIRS: [&str; 4] = [
+    "app/com.discordapp.Discord",
+    "app/com.discordapp.DiscordCanary",
+    "app/com.discordapp.DiscordPTB",
+    "snap.discord",
+];
+
 /// Discord's IPC socket lives at `<base>/discord-ipc-<0..9>`, `base`
-/// being `$XDG_RUNTIME_DIR` (or `$TMPDIR`, or `/tmp` if neither is
-/// set). Multiple indices exist for multiple concurrently-running
-/// Discord clients (stable/PTB/canary); trying all ten and taking the
-/// first that accepts a connection is standard practice for RPC
-/// clients.
+/// being `$XDG_RUNTIME_DIR` (or `$TMPDIR`, or `/tmp` if neither is set)
+/// for a native install, plus one `SANDBOX_SUBDIRS` entry per packaged
+/// install. Multiple indices exist for multiple concurrently-running
+/// Discord clients (stable/PTB/canary); trying them all and taking the
+/// first that accepts a connection is standard practice for RPC clients.
+/// Every miss is a single immediate `ENOENT`, so scanning the full set
+/// each reconnect costs nothing measurable.
 fn candidate_paths(base: &str) -> Vec<PathBuf> {
-    (0..10)
-        .map(|n| PathBuf::from(base).join(format!("discord-ipc-{n}")))
+    let runtime = PathBuf::from(base);
+    std::iter::once(runtime.clone())
+        .chain(SANDBOX_SUBDIRS.iter().map(|sub| runtime.join(sub)))
+        .flat_map(|dir| (0..10).map(move |n| dir.join(format!("discord-ipc-{n}"))))
         .collect()
 }
 
@@ -453,7 +469,7 @@ mod tests {
     #[test]
     fn candidate_paths_covers_all_ten_discord_ipc_indices() {
         let paths = candidate_paths("/run/user/1000");
-        assert_eq!(paths.len(), 10);
+        assert_eq!(paths.len(), 10 * (1 + SANDBOX_SUBDIRS.len()));
         assert_eq!(
             paths[0],
             std::path::PathBuf::from("/run/user/1000/discord-ipc-0")
@@ -462,6 +478,25 @@ mod tests {
             paths[9],
             std::path::PathBuf::from("/run/user/1000/discord-ipc-9")
         );
+    }
+
+    /// The Flatpak package is how most Linux users install Discord, and
+    /// it binds its socket inside its own runtime subdirectory — a
+    /// native-only search finds nothing and retries forever in silence.
+    #[test]
+    fn candidate_paths_include_the_flatpak_socket_location() {
+        let paths = candidate_paths("/run/user/1000");
+        assert!(paths.contains(&std::path::PathBuf::from(
+            "/run/user/1000/app/com.discordapp.Discord/discord-ipc-0"
+        )));
+    }
+
+    #[test]
+    fn candidate_paths_include_the_snap_socket_location() {
+        let paths = candidate_paths("/run/user/1000");
+        assert!(paths.contains(&std::path::PathBuf::from(
+            "/run/user/1000/snap.discord/discord-ipc-0"
+        )));
     }
 
     #[test]
