@@ -1,6 +1,6 @@
 [package]
 name = "echora"
-version = "0.2.3"
+version = "0.2.4"
 description = "Mood-first, ultra-lightweight desktop audio player for Linux."
 authors = ["Sidney Roberto <sidneyrpsilva@gmail.com>"]
 edition = "2024"
