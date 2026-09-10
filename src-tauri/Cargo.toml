@@ -36,6 +36,10 @@ tauri-plugin-autostart = "2.5.1"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 attohttpc = { version = "0.31.0", default-features = false, features = ["tls-rustls-native-roots"] }
+# Not a new bundled library: rustls is already in the tree via attohttpc and
+# tauri-plugin-updater's reqwest. Declared directly only so startup can name
+# `CryptoProvider::install_default()` -- see `install_crypto_provider` in lib.rs.
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
 ksni = "0.3.6"
 sha2 = "0.11.0"
 tauri-plugin-shell = "2"

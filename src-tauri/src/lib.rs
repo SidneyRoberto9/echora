@@ -32,8 +32,23 @@ fn get_third_party_licenses() -> Vec<licenses::LicenseEntry> {
     licenses::all()
 }
 
+/// Picks rustls' crypto backend explicitly, before anything can open a
+/// TLS connection. Both backends end up compiled in — `attohttpc`
+/// enables rustls' `ring` feature, `tauri-plugin-updater`'s `reqwest`
+/// enables `aws-lc-rs`, and cargo features are additive — and rustls
+/// 0.23 refuses to guess between them: it panics on the first handshake
+/// instead. That killed `media::sponsorblock::watch`'s task (a panic in
+/// a spawned task is caught by tokio, so the app kept running with
+/// SponsorBlock silently dead) the first time any track played.
+/// Idempotent: a second call would return `Err`, which is fine to drop.
+fn install_crypto_provider() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    install_crypto_provider();
+
     tauri::Builder::default()
         // Must be the first plugin registered: it needs to intercept a
         // second launch (and re-focus the existing window) before any
@@ -202,6 +217,15 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The bug this guards: with both rustls backends compiled in and no
+    /// provider installed, the first HTTPS call (SponsorBlock's segment
+    /// lookup) panics its task instead of connecting.
+    #[test]
+    fn install_crypto_provider_leaves_a_default_provider_installed() {
+        install_crypto_provider();
+        assert!(rustls::crypto::CryptoProvider::get_default().is_some());
+    }
 
     #[test]
     fn is_appimage_build_reflects_the_appimage_env_var() {
