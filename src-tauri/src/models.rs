@@ -153,6 +153,7 @@ pub struct Settings {
     pub autostart_enabled: bool,
     pub sponsorblock_categories: Vec<String>,
     pub volume: u8,
+    pub discord_presence_enabled: bool,
 }
 
 impl Default for Settings {
@@ -164,6 +165,7 @@ impl Default for Settings {
             autostart_enabled: false,
             sponsorblock_categories: vec!["sponsor".into(), "selfpromo".into(), "intro".into()],
             volume: 100,
+            discord_presence_enabled: false,
         }
     }
 }

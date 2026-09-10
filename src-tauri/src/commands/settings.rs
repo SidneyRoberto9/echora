@@ -31,6 +31,7 @@ pub struct SettingsPatch {
     pub autostart_enabled: Option<bool>,
     pub sponsorblock_categories: Option<Vec<String>>,
     pub volume: Option<u8>,
+    pub discord_presence_enabled: Option<bool>,
 }
 
 /// Merges `patch` onto `current`, validating as it merges: `volume` is
@@ -58,6 +59,9 @@ fn apply_patch(current: Settings, patch: SettingsPatch) -> Settings {
     }
     if let Some(v) = patch.autostart_enabled {
         next.autostart_enabled = v;
+    }
+    if let Some(v) = patch.discord_presence_enabled {
+        next.discord_presence_enabled = v;
     }
     next
 }
@@ -150,5 +154,17 @@ mod tests {
             },
         );
         assert_eq!(next.sponsorblock_categories, vec!["sponsor".to_string()]);
+    }
+
+    #[test]
+    fn patch_can_enable_discord_presence() {
+        let next = apply_patch(
+            Settings::default(),
+            SettingsPatch {
+                discord_presence_enabled: Some(true),
+                ..Default::default()
+            },
+        );
+        assert!(next.discord_presence_enabled);
     }
 }
