@@ -77,15 +77,20 @@ fn apply_patch(current: Settings, patch: SettingsPatch) -> Settings {
 /// frontend can adopt it directly instead of re-deriving its own copy of
 /// the merge.
 #[tauri::command]
-pub fn update_settings(
+pub async fn update_settings(
     app: AppHandle,
-    state: State<AppState>,
+    state: State<'_, AppState>,
     patch: SettingsPatch,
 ) -> Result<Settings> {
-    let db = state.db.lock().unwrap();
-    let next = apply_patch(db.get_settings()?, patch);
-    db.save_settings(&next)?;
-    drop(db);
+    // Scoped rather than `drop`ped: this is an async command now, and a
+    // `std::sync::MutexGuard` merely *reachable* at an await point makes
+    // the whole future non-`Send`, which Tauri's handler rejects.
+    let next = {
+        let db = state.db.lock().unwrap();
+        let next = apply_patch(db.get_settings()?, patch);
+        db.save_settings(&next)?;
+        next
+    };
 
     state.crash_reporting_enabled.store(
         next.crash_report_enabled,
@@ -94,6 +99,14 @@ pub fn update_settings(
     autostart::sync(&app, next.autostart_enabled)?;
     if let Some(handle) = state.discord.as_ref() {
         crate::platform::discord::set_enabled(handle, next.discord_presence_enabled);
+        // `notify_from_state` is inert while the feature is off, so the
+        // presence channel still holds whatever was true when it was last
+        // on (usually nothing). Push the live state once at the moment
+        // it's switched on, instead of showing nothing until the next
+        // playback event happens to fire.
+        if next.discord_presence_enabled {
+            crate::platform::discord::notify_from_state(handle, &state).await;
+        }
     }
     Ok(next)
 }
