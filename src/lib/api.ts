@@ -111,6 +111,7 @@ export interface Settings {
   autostart_enabled: boolean;
   sponsorblock_categories: string[];
   volume: number;
+  discord_presence_enabled: boolean;
 }
 
 interface ErrorPayload {

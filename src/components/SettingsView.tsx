@@ -372,6 +372,22 @@ export function SettingsView({ onError }: SettingsViewProps) {
           />
         </div>
         <CrashReportsList enabled={settings.crash_report_enabled} onError={onError} />
+
+        <div className="settings-row">
+          <span>
+            <div className="settings-row__label">Discord Rich Presence</div>
+            <div className="settings-row__hint">
+              Shows what's playing as your Discord status — only sent while Discord is running
+            </div>
+          </span>
+          <Toggle
+            on={settings.discord_presence_enabled}
+            label="Discord Rich Presence"
+            onChange={() =>
+              update({ discord_presence_enabled: !settings.discord_presence_enabled })
+            }
+          />
+        </div>
         <div className="privacy-note">No account · No cloud · No telemetry by default</div>
 
         <LicensesSection />
