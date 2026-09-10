@@ -194,6 +194,11 @@ pub(crate) enum PresenceState {
     },
 }
 
+/// Discord's activity type, which picks the verb it shows above the
+/// card: `0` (the default) reads "Playing", `2` reads "Listening to".
+/// A music player wants the latter.
+const ACTIVITY_TYPE_LISTENING: u8 = 2;
+
 /// Pure function of the state: the same `PresenceState` always produces
 /// the same payload, no matter when it's serialized. That's what keeps
 /// the elapsed timer stable across resends.
@@ -206,6 +211,7 @@ fn activity_value(state: &PresenceState) -> serde_json::Value {
             start_unix,
         } => {
             let mut activity = serde_json::json!({
+                "type": ACTIVITY_TYPE_LISTENING,
                 "details": sanitize_field(title, MAX_FIELD_BYTES),
                 "timestamps": { "start": start_unix.max(0.0) as i64 },
             });
@@ -222,6 +228,7 @@ fn activity_value(state: &PresenceState) -> serde_json::Value {
                 None => "Paused".to_string(),
             };
             serde_json::json!({
+                "type": ACTIVITY_TYPE_LISTENING,
                 "details": sanitize_field(title, MAX_FIELD_BYTES),
                 "state": sanitize_field(&label, MAX_FIELD_BYTES),
             })
@@ -546,6 +553,23 @@ mod tests {
         assert_eq!(value["details"], "Song");
         assert_eq!(value["state"], "Paused — Artist");
         assert!(value.get("timestamps").is_none());
+    }
+
+    /// Without an explicit type, Discord labels the card "Playing
+    /// Echora" — wrong verb for a music player. Type 2 is "Listening to".
+    #[test]
+    fn activity_value_marks_both_variants_as_listening() {
+        let playing = activity_value(&PresenceState::Playing {
+            title: "Song".into(),
+            artist: Some("Artist".into()),
+            start_unix: 970.0,
+        });
+        let paused = activity_value(&PresenceState::Paused {
+            title: "Song".into(),
+            artist: Some("Artist".into()),
+        });
+        assert_eq!(playing["type"], 2);
+        assert_eq!(paused["type"], 2);
     }
 
     /// Both variants drop the artist half entirely when there isn't one,
