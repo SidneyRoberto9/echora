@@ -331,8 +331,27 @@ impl Player {
         }
     }
 
+    /// Loads a stream, replacing whatever was playing.
+    ///
+    /// The cached `time-pos`/`duration` are cleared as part of this:
+    /// mpv only reports the new file's values asynchronously, a moment
+    /// later, so until then the cache still holds the *outgoing* track's
+    /// numbers — and callers that read it right after `load()` returns
+    /// (`platform::notify_playback_changed`, so both Discord presence's
+    /// start anchor and MPRIS's `Seeked` signal) would otherwise publish
+    /// the old track's position as the new one's. They're definitionally
+    /// unknown at this instant, which is exactly what `None` means here.
+    ///
+    /// Clearing *after* the reply, not before, is what makes this
+    /// race-free: the single reader task processes the connection's lines
+    /// in order, so every property-change mpv emitted before it
+    /// acknowledged this `loadfile` has already been applied by the time
+    /// this line runs.
     pub async fn load(&mut self, stream_url: &str) -> Result<()> {
         self.send_command(json!(["loadfile", stream_url])).await?;
+        let mut cache = self.cache.lock().unwrap();
+        cache.position_seconds = None;
+        cache.duration_seconds = None;
         Ok(())
     }
 
@@ -687,6 +706,57 @@ mod tests {
             elapsed < Duration::from_secs(3),
             "send_command_fresh_connection should give up around COMMAND_TIMEOUT, took {elapsed:?} instead"
         );
+
+        let _ = std::fs::remove_file(&socket_path);
+    }
+
+    /// The cached position/duration belong to the track being replaced:
+    /// anything reading them between `load()` and mpv's first
+    /// property-change for the *new* file (Discord presence's start
+    /// anchor, MPRIS's `Seeked` signal — both fire in the statement right
+    /// after `load()` returns) would otherwise report the outgoing
+    /// track's elapsed time as the incoming one's.
+    #[tokio::test]
+    async fn load_clears_the_previous_tracks_cached_position_and_duration() {
+        let socket_path = hang_socket_path();
+        let listener = UnixListener::bind(&socket_path).unwrap();
+        let _fake_mpv = tokio::spawn(async move {
+            let (stream, _addr) = listener.accept().await.unwrap();
+            let (read_half, mut write_half) = stream.into_split();
+            let mut reader = BufReader::new(read_half);
+            let mut line = String::new();
+            loop {
+                line.clear();
+                if reader.read_line(&mut line).await.unwrap_or(0) == 0 {
+                    return;
+                }
+                let Ok(value) = serde_json::from_str::<Value>(line.trim()) else {
+                    continue;
+                };
+                let Some(id) = value.get("request_id").and_then(Value::as_u64) else {
+                    continue;
+                };
+                let reply = json!({ "error": "success", "request_id": id });
+                let _ = write_half.write_all(format!("{reply}\n").as_bytes()).await;
+            }
+        });
+
+        let mut player = Player::new(
+            socket_path.clone(),
+            std::env::temp_dir(),
+            Arc::new(AtomicBool::new(false)),
+        );
+        player.connect_persistent().await.unwrap();
+        {
+            let mut cache = player.cache.lock().unwrap();
+            cache.position_seconds = Some(200.0);
+            cache.duration_seconds = Some(240.0);
+        }
+
+        player.load("https://example.invalid/stream").await.unwrap();
+
+        assert_eq!(player.position_seconds().await.unwrap(), None);
+        assert_eq!(player.duration_seconds().await.unwrap(), None);
 
         let _ = std::fs::remove_file(&socket_path);
     }
