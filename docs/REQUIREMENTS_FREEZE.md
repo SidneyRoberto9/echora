@@ -36,7 +36,8 @@ maintainer explicitly requests a change.
 ## V1 scope
 
 **In:** auto-update, Scenes, Mood Mixing, Discover, Statistics,
-SponsorBlock, autostart on system startup.
+SponsorBlock, autostart on system startup, Discord Rich Presence
+(opt-in, off by default).
 
 **Out:** download/offline mode, Smart Search (removed from scope),
 free-text search UI (removed from scope — mood-driven search remains the
@@ -69,10 +70,13 @@ validated.
   / 2GB / Unlimited).
 - History: retained indefinitely by default, clearable and disableable
   in Settings.
-- Telemetry: none by default. The one exception is a fully manual,
-  opt-in crash report — a local log plus a button that opens a
-  pre-filled GitHub issue in the user's browser. No automatic network
-  call, no third-party SDK.
+- Telemetry: none by default. Two manual, opt-in exceptions exist: a
+  crash report (a local log plus a button that opens a pre-filled
+  GitHub issue in the user's browser — no automatic network call, no
+  third-party SDK), and Discord Rich Presence (see
+  `docs/adr/0010-discord-rich-presence-hand-rolled-ipc.md`) — off by
+  default, and even when on, no data leaves the device beyond the local
+  Discord client's own IPC socket.
 
 ## Appearance
 
