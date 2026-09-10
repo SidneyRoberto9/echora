@@ -8,16 +8,17 @@
 //! `Settings::discord_presence_enabled`.
 
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixStream;
+use tokio::sync::watch;
 
 const OP_HANDSHAKE: i32 = 0;
-#[allow(dead_code)]
 const OP_FRAME: i32 = 1;
-#[allow(dead_code)]
 const DISCORD_CLIENT_ID: &str = "1547402077863542914";
 
-#[allow(dead_code)]
 const MAX_FIELD_BYTES: usize = 128;
 
 /// Discord's `details`/`state` activity fields are untrusted-YouTube-
@@ -25,7 +26,6 @@ const MAX_FIELD_BYTES: usize = 128;
 /// before it's used). Strips control characters, collapses whitespace
 /// runs, truncates at a UTF-8 char boundary within `max_bytes`, and
 /// falls back to "Echora" if nothing printable is left.
-#[allow(dead_code)]
 pub(crate) fn sanitize_field(input: &str, max_bytes: usize) -> String {
     let cleaned: String = input.chars().filter(|c| !c.is_control() || c.is_whitespace()).collect();
     let collapsed = cleaned.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -37,7 +37,6 @@ pub(crate) fn sanitize_field(input: &str, max_bytes: usize) -> String {
     }
 }
 
-#[allow(dead_code)]
 fn truncate_utf8(s: &str, max_bytes: usize) -> String {
     if s.len() <= max_bytes {
         return s.to_string();
@@ -89,7 +88,6 @@ async fn read_frame(stream: &mut UnixStream) -> std::io::Result<(i32, Vec<u8>)> 
     Ok((opcode, body))
 }
 
-#[allow(dead_code)]
 async fn write_frame(
     stream: &mut UnixStream,
     opcode: i32,
@@ -103,7 +101,6 @@ async fn write_frame(
 /// wins. Returns `None` (never an error) if nothing is listening
 /// anywhere, which just means Discord isn't running right now; the
 /// caller's reconnect loop tries again later.
-#[allow(dead_code)]
 async fn connect() -> Option<UnixStream> {
     let base = runtime_dir();
     for path in candidate_paths(&base) {
@@ -126,7 +123,6 @@ async fn connect() -> Option<UnixStream> {
 /// queue/player state `mpris::notify` already reads. `Idle` covers both
 /// "nothing loaded" and "the feature is enabled but disconnected" —
 /// either way, Discord shows no activity.
-#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum PresenceState {
     Idle,
@@ -141,7 +137,6 @@ pub(crate) enum PresenceState {
     },
 }
 
-#[allow(dead_code)]
 fn activity_value(state: &PresenceState, now_unix: f64) -> serde_json::Value {
     match state {
         PresenceState::Idle => serde_json::Value::Null,
@@ -167,7 +162,6 @@ fn activity_value(state: &PresenceState, now_unix: f64) -> serde_json::Value {
     }
 }
 
-#[allow(dead_code)]
 fn now_unix() -> f64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -181,7 +175,6 @@ static NONCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0
 /// `nonce` only needs to be unique per outgoing request for this
 /// process's lifetime, per the protocol — a monotonic counter is
 /// simpler than pulling in a UUID dependency for it.
-#[allow(dead_code)]
 fn set_activity_frame(state: &PresenceState) -> serde_json::Value {
     let nonce = NONCE
         .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
@@ -194,6 +187,123 @@ fn set_activity_frame(state: &PresenceState) -> serde_json::Value {
         },
         "nonce": nonce,
     })
+}
+
+const RECONNECT_INTERVAL: Duration = Duration::from_secs(25);
+/// Rapid successive calls to `notify` (e.g. clicking Next several times
+/// fast) coalesce into one outgoing update instead of one per click --
+/// `watch` already discards intermediate values, this just delays the
+/// read so a whole burst lands in the same read.
+const DEBOUNCE: Duration = Duration::from_millis(1000);
+
+pub struct Handle {
+    tx: watch::Sender<PresenceState>,
+    enabled: Arc<AtomicBool>,
+}
+
+/// Spawns the background connection/reconnect task and returns a handle
+/// to it. Safe to call unconditionally at startup regardless of whether
+/// Discord is installed or the feature is enabled -- the task itself
+/// checks `enabled` before doing any IO, and idles (re-checking every
+/// `RECONNECT_INTERVAL`) whenever Discord isn't reachable.
+#[allow(dead_code)]
+pub fn spawn() -> Handle {
+    let (tx, rx) = watch::channel(PresenceState::Idle);
+    let enabled = Arc::new(AtomicBool::new(false));
+    tauri::async_runtime::spawn(run(enabled.clone(), rx));
+    Handle { tx, enabled }
+}
+
+/// Pushes a presence value toward the background task. Never blocks;
+/// `watch::Sender::send` only fails if every receiver was dropped, which
+/// only happens if the background task itself panicked.
+#[allow(dead_code)]
+pub(crate) fn notify(handle: &Handle, presence: PresenceState) {
+    let _ = handle.tx.send(presence);
+}
+
+/// Reads the same queue/player state `mpris::notify` reads and maps it
+/// to a `PresenceState`, then pushes it -- the bridge from `AppState` to
+/// Discord.
+#[allow(dead_code)]
+pub(crate) async fn notify_from_state(handle: &Handle, state: &crate::state::AppState) {
+    let queue = state.queue.lock().unwrap().view();
+    let Some(track) = queue.current else {
+        notify(handle, PresenceState::Idle);
+        return;
+    };
+    let mut player = state.player.lock().await;
+    let paused = player.is_paused().await.ok().flatten().unwrap_or(false);
+    let position = player.position_seconds().await.ok().flatten().unwrap_or(0.0);
+    drop(player);
+
+    let presence = if paused {
+        PresenceState::Paused {
+            title: track.title,
+            artist: track.artist,
+        }
+    } else {
+        PresenceState::Playing {
+            title: track.title,
+            artist: track.artist,
+            position_secs: position,
+        }
+    };
+    notify(handle, presence);
+}
+
+/// Flips the feature on/off and wakes the background task immediately
+/// (rather than waiting up to `RECONNECT_INTERVAL`), so a Settings
+/// toggle takes effect right away -- `watch::Sender::send` always
+/// notifies waiting receivers, even when resending the same value.
+#[allow(dead_code)]
+pub fn set_enabled(handle: &Handle, enabled: bool) {
+    handle.enabled.store(enabled, std::sync::atomic::Ordering::Relaxed);
+    let current = handle.tx.borrow().clone();
+    let _ = handle.tx.send(current);
+}
+
+/// Best-effort immediate clear, for app shutdown. A plain channel send --
+/// never blocking IO -- so it can't hang the quit path even if Discord's
+/// socket is stuck.
+#[allow(dead_code)]
+pub fn clear(handle: &Handle) {
+    let _ = handle.tx.send(PresenceState::Idle);
+}
+
+async fn run(enabled: Arc<AtomicBool>, mut rx: watch::Receiver<PresenceState>) {
+    let mut stream: Option<UnixStream> = None;
+    let mut retry = tokio::time::interval(RECONNECT_INTERVAL);
+    retry.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+
+    loop {
+        tokio::select! {
+            changed = rx.changed() => {
+                if changed.is_err() {
+                    return; // Handle dropped -- app is shutting down.
+                }
+                tokio::time::sleep(DEBOUNCE).await;
+            }
+            _ = retry.tick() => {}
+        }
+
+        if !enabled.load(std::sync::atomic::Ordering::Relaxed) {
+            if let Some(mut s) = stream.take() {
+                let _ = write_frame(&mut s, OP_FRAME, &set_activity_frame(&PresenceState::Idle)).await;
+            }
+            continue;
+        }
+
+        if stream.is_none() {
+            stream = connect().await;
+        }
+        let Some(s) = stream.as_mut() else { continue };
+
+        let presence = rx.borrow().clone();
+        if write_frame(s, OP_FRAME, &set_activity_frame(&presence)).await.is_err() {
+            stream = None;
+        }
+    }
 }
 
 #[cfg(test)]
