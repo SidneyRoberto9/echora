@@ -21,6 +21,28 @@ const DISCORD_CLIENT_ID: &str = "1547402077863542914";
 
 const MAX_FIELD_BYTES: usize = 128;
 
+/// Ceiling on a single inbound frame's declared body length. The length
+/// prefix is peer-controlled and anything local can bind
+/// `discord-ipc-0` before Discord does, so an unbounded `vec![0; len]`
+/// on it is a remotely-triggerable 4 GiB allocation -- and an allocation
+/// failure aborts the process (`handle_alloc_error` isn't catchable).
+/// Discord's own responses are a few hundred bytes; 64 KiB is generous.
+const MAX_FRAME_BYTES: usize = 64 * 1024;
+
+/// How long the local IPC handshake (write + response) may take before
+/// the candidate is abandoned. Without it, a peer that accepts the
+/// connection and then never writes parks the whole background task
+/// inside `connect()` forever -- nothing polls `rx` from there, so the
+/// settings toggle and shutdown's `clear()` both stop working for the
+/// rest of the session, and a squatter on `discord-ipc-0` permanently
+/// hides a real Discord on `discord-ipc-1..9`.
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// How long to wait for Discord's response to a `SET_ACTIVITY` before
+/// giving up on draining it this round. A timeout here means "nothing
+/// to read yet", not a broken connection.
+const RESPONSE_DRAIN_TIMEOUT: Duration = Duration::from_millis(200);
+
 /// Discord's `details`/`state` activity fields are untrusted-YouTube-
 /// metadata boundaries (CLAUDE.md: normalize/validate external metadata
 /// before it's used). Strips control characters, collapses whitespace
@@ -86,6 +108,12 @@ async fn read_frame(stream: &mut UnixStream) -> std::io::Result<(i32, Vec<u8>)> 
     stream.read_exact(&mut header).await?;
     let opcode = i32::from_le_bytes(header[0..4].try_into().unwrap());
     let len = u32::from_le_bytes(header[4..8].try_into().unwrap()) as usize;
+    if len > MAX_FRAME_BYTES {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "discord IPC frame length exceeds MAX_FRAME_BYTES",
+        ));
+    }
     let mut body = vec![0u8; len];
     stream.read_exact(&mut body).await?;
     Ok((opcode, body))
@@ -111,13 +139,14 @@ async fn connect() -> Option<UnixStream> {
             continue;
         };
         let handshake = serde_json::json!({ "v": 1, "client_id": DISCORD_CLIENT_ID });
-        if write_frame(&mut stream, OP_HANDSHAKE, &handshake)
-            .await
-            .is_err()
-        {
-            continue;
-        }
-        if read_frame(&mut stream).await.is_err() {
+        let handshaken = tokio::time::timeout(HANDSHAKE_TIMEOUT, async {
+            write_frame(&mut stream, OP_HANDSHAKE, &handshake).await?;
+            read_frame(&mut stream).await
+        })
+        .await;
+        // A timed-out candidate is treated exactly like one that refused
+        // or errored: move on to the next path.
+        if !matches!(handshaken, Ok(Ok(_))) {
             continue;
         }
         return Some(stream);
@@ -135,7 +164,13 @@ pub(crate) enum PresenceState {
     Playing {
         title: String,
         artist: Option<String>,
-        position_secs: f64,
+        /// Absolute Unix timestamp the current track started at, i.e.
+        /// `now - position` computed *once*, when the state was built.
+        /// Deliberately not a relative position: Discord counts up from
+        /// this anchor on its own, so a value that gets re-based against
+        /// a fresh `now` on every resend would make the displayed
+        /// elapsed time jump back to the stale offset each time.
+        start_unix: f64,
     },
     Paused {
         title: String,
@@ -143,23 +178,33 @@ pub(crate) enum PresenceState {
     },
 }
 
-fn activity_value(state: &PresenceState, now_unix: f64) -> serde_json::Value {
+/// Pure function of the state: the same `PresenceState` always produces
+/// the same payload, no matter when it's serialized. That's what keeps
+/// the elapsed timer stable across resends.
+fn activity_value(state: &PresenceState) -> serde_json::Value {
     match state {
         PresenceState::Idle => serde_json::Value::Null,
         PresenceState::Playing {
             title,
             artist,
-            position_secs,
+            start_unix,
         } => {
-            let start = (now_unix - position_secs).max(0.0) as i64;
-            serde_json::json!({
+            let mut activity = serde_json::json!({
                 "details": sanitize_field(title, MAX_FIELD_BYTES),
-                "state": sanitize_field(artist.as_deref().unwrap_or(""), MAX_FIELD_BYTES),
-                "timestamps": { "start": start },
-            })
+                "timestamps": { "start": start_unix.max(0.0) as i64 },
+            });
+            // No artist known: omit the field rather than inventing one
+            // (the paused variant drops the artist half the same way).
+            if let Some(artist) = artist {
+                activity["state"] = sanitize_field(artist, MAX_FIELD_BYTES).into();
+            }
+            activity
         }
         PresenceState::Paused { title, artist } => {
-            let label = format!("Paused — {}", artist.as_deref().unwrap_or(""));
+            let label = match artist {
+                Some(artist) => format!("Paused — {artist}"),
+                None => "Paused".to_string(),
+            };
             serde_json::json!({
                 "details": sanitize_field(title, MAX_FIELD_BYTES),
                 "state": sanitize_field(&label, MAX_FIELD_BYTES),
@@ -189,7 +234,7 @@ fn set_activity_frame(state: &PresenceState) -> serde_json::Value {
         "cmd": "SET_ACTIVITY",
         "args": {
             "pid": std::process::id(),
-            "activity": activity_value(state, now_unix()),
+            "activity": activity_value(state),
         },
         "nonce": nonce,
     })
@@ -231,6 +276,12 @@ pub(crate) fn notify(handle: &Handle, presence: PresenceState) {
 /// to a `PresenceState`, then pushes it -- the bridge from `AppState` to
 /// Discord.
 pub(crate) async fn notify_from_state(handle: &Handle, state: &crate::state::AppState) {
+    // Off by default and most users never turn it on -- don't make them
+    // pay a queue clone plus a player lock on every playback event for a
+    // feature that isn't running.
+    if !handle.enabled.load(std::sync::atomic::Ordering::Relaxed) {
+        return;
+    }
     let queue = state.queue.lock().unwrap().view();
     let Some(track) = queue.current else {
         notify(handle, PresenceState::Idle);
@@ -255,7 +306,7 @@ pub(crate) async fn notify_from_state(handle: &Handle, state: &crate::state::App
         PresenceState::Playing {
             title: track.title,
             artist: track.artist,
-            position_secs: position,
+            start_unix: now_unix() - position,
         }
     };
     notify(handle, presence);
@@ -282,6 +333,12 @@ pub fn clear(handle: &Handle) {
 
 async fn run(enabled: Arc<AtomicBool>, mut rx: watch::Receiver<PresenceState>) {
     let mut stream: Option<UnixStream> = None;
+    // What was last written successfully on the *current* connection --
+    // cleared whenever the connection is (re)established, so the first
+    // write after a connect always happens. A `retry.tick()` while
+    // connected with nothing new to say is then a pure no-op instead of
+    // a redundant `SET_ACTIVITY` every 25s.
+    let mut last_sent: Option<PresenceState> = None;
     let mut retry = tokio::time::interval(RECONNECT_INTERVAL);
     retry.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
@@ -300,21 +357,48 @@ async fn run(enabled: Arc<AtomicBool>, mut rx: watch::Receiver<PresenceState>) {
             if let Some(mut s) = stream.take() {
                 let _ =
                     write_frame(&mut s, OP_FRAME, &set_activity_frame(&PresenceState::Idle)).await;
+                last_sent = None;
             }
             continue;
         }
 
         if stream.is_none() {
             stream = connect().await;
+            if stream.is_some() {
+                last_sent = None;
+                eprintln!("discord: rich presence connected");
+            }
         }
         let Some(s) = stream.as_mut() else { continue };
 
         let presence = rx.borrow().clone();
-        if write_frame(s, OP_FRAME, &set_activity_frame(&presence))
+        if last_sent.as_ref() == Some(&presence) {
+            continue;
+        }
+
+        let written = write_frame(s, OP_FRAME, &set_activity_frame(&presence))
             .await
-            .is_err()
-        {
+            .is_ok();
+        // Discord answers every SET_ACTIVITY; drain the reply so it can't
+        // pile up unread in the socket's receive buffer over a long
+        // session. Contents are ignored -- a timeout here only means
+        // "nothing to read yet", while a read *error* is the connection
+        // going away.
+        let drained = written
+            && !matches!(
+                tokio::time::timeout(RESPONSE_DRAIN_TIMEOUT, read_frame(s)).await,
+                Ok(Err(_))
+            );
+
+        if written && drained {
+            last_sent = Some(presence);
+        } else {
+            eprintln!(
+                "discord: rich presence connection lost, retrying in {}s",
+                RECONNECT_INTERVAL.as_secs()
+            );
             stream = None;
+            last_sent = None;
         }
     }
 }
@@ -383,22 +467,38 @@ mod tests {
     #[test]
     fn activity_value_for_idle_is_null() {
         assert_eq!(
-            activity_value(&PresenceState::Idle, 1000.0),
+            activity_value(&PresenceState::Idle),
             serde_json::Value::Null
         );
     }
 
     #[test]
-    fn activity_value_for_playing_sets_start_timestamp_from_position() {
+    fn activity_value_for_playing_uses_the_stored_start_anchor_verbatim() {
         let state = PresenceState::Playing {
             title: "Song".into(),
             artist: Some("Artist".into()),
-            position_secs: 30.0,
+            start_unix: 970.0,
         };
-        let value = activity_value(&state, 1000.0);
+        let value = activity_value(&state);
         assert_eq!(value["details"], "Song");
         assert_eq!(value["state"], "Artist");
         assert_eq!(value["timestamps"]["start"], 970);
+    }
+
+    /// The sawtooth regression: the reconnect loop can resend the same
+    /// state minutes later, and Discord counts up from `timestamps.start`
+    /// itself -- so re-serializing an unchanged state must produce a
+    /// byte-identical activity, never one re-based against a fresh `now`.
+    #[test]
+    fn activity_value_for_playing_is_stable_across_repeated_sends() {
+        let state = PresenceState::Playing {
+            title: "Song".into(),
+            artist: Some("Artist".into()),
+            start_unix: now_unix() - 30.0,
+        };
+        let first = activity_value(&state);
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        assert_eq!(first, activity_value(&state));
     }
 
     #[test]
@@ -407,10 +507,29 @@ mod tests {
             title: "Song".into(),
             artist: Some("Artist".into()),
         };
-        let value = activity_value(&state, 1000.0);
+        let value = activity_value(&state);
         assert_eq!(value["details"], "Song");
         assert_eq!(value["state"], "Paused — Artist");
         assert!(value.get("timestamps").is_none());
+    }
+
+    /// Both variants drop the artist half entirely when there isn't one,
+    /// rather than rendering a dangling "Paused — " or passing the app's
+    /// own name off as the artist.
+    #[test]
+    fn activity_value_omits_the_artist_consistently_when_unknown() {
+        let playing = activity_value(&PresenceState::Playing {
+            title: "Song".into(),
+            artist: None,
+            start_unix: 970.0,
+        });
+        assert!(playing.get("state").is_none());
+
+        let paused = activity_value(&PresenceState::Paused {
+            title: "Song".into(),
+            artist: None,
+        });
+        assert_eq!(paused["state"], "Paused");
     }
 
     #[test]
@@ -418,10 +537,54 @@ mod tests {
         let state = PresenceState::Playing {
             title: "Song\u{0007}".into(),
             artist: Some("  Art   ist  ".into()),
-            position_secs: 0.0,
+            start_unix: 1000.0,
         };
-        let value = activity_value(&state, 1000.0);
+        let value = activity_value(&state);
         assert_eq!(value["details"], "Song");
         assert_eq!(value["state"], "Art ist");
+    }
+
+    #[test]
+    fn set_activity_frame_wraps_the_activity_in_the_command_envelope() {
+        let state = PresenceState::Playing {
+            title: "Song".into(),
+            artist: Some("Artist".into()),
+            start_unix: 970.0,
+        };
+        let frame = set_activity_frame(&state);
+
+        assert_eq!(frame["cmd"], "SET_ACTIVITY");
+        assert_eq!(frame["args"]["pid"], std::process::id());
+        assert_eq!(frame["args"]["activity"], activity_value(&state));
+        assert!(frame["nonce"].is_string());
+    }
+
+    /// The length prefix is peer-controlled: a squatter on the IPC socket
+    /// must not be able to make us attempt a multi-gigabyte allocation.
+    #[tokio::test]
+    async fn read_frame_rejects_a_length_prefix_over_the_ceiling() {
+        let (mut writer, mut reader) = UnixStream::pair().unwrap();
+        let mut header = Vec::new();
+        header.extend_from_slice(&OP_FRAME.to_le_bytes());
+        header.extend_from_slice(&u32::MAX.to_le_bytes());
+        writer.write_all(&header).await.unwrap();
+
+        let err = read_frame(&mut reader).await.unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+    }
+
+    #[tokio::test]
+    async fn read_frame_accepts_a_frame_at_the_ceiling() {
+        let (mut writer, mut reader) = UnixStream::pair().unwrap();
+        let payload = serde_json::json!({ "evt": "READY" });
+        let frame = encode_frame(OP_FRAME, &payload);
+        writer.write_all(&frame).await.unwrap();
+
+        let (opcode, body) = read_frame(&mut reader).await.unwrap();
+        assert_eq!(opcode, OP_FRAME);
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&body).unwrap(),
+            payload
+        );
     }
 }
