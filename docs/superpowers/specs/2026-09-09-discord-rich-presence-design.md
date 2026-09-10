@@ -1,6 +1,6 @@
 # Discord Rich Presence — Design
 
-Status: Approved. Not yet implemented.
+Status: Implemented.
 
 ## Purpose
 
