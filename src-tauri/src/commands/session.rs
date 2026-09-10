@@ -37,6 +37,7 @@ pub(crate) async fn end_session_impl(state: &AppState) -> Result<()> {
     super::record_current_completion(state).await?;
     state.db.lock().unwrap().end_session(session.id)?;
     state.queue.lock().unwrap().clear();
+    crate::platform::notify_playback_changed(state).await;
     Ok(())
 }
 

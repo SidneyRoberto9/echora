@@ -6,21 +6,21 @@ use crate::state::AppState;
 #[tauri::command]
 pub async fn pause_playback(state: State<'_, AppState>) -> Result<()> {
     state.player.lock().await.set_paused(true).await?;
-    crate::platform::mpris::notify(&state).await;
+    crate::platform::notify_playback_changed(&state).await;
     Ok(())
 }
 
 #[tauri::command]
 pub async fn resume_playback(state: State<'_, AppState>) -> Result<()> {
     state.player.lock().await.set_paused(false).await?;
-    crate::platform::mpris::notify(&state).await;
+    crate::platform::notify_playback_changed(&state).await;
     Ok(())
 }
 
 #[tauri::command]
 pub async fn seek_playback(state: State<'_, AppState>, seconds: f64) -> Result<()> {
     state.player.lock().await.seek_to(seconds).await?;
-    crate::platform::mpris::notify(&state).await;
+    crate::platform::notify_playback_changed(&state).await;
     Ok(())
 }
 

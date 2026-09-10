@@ -264,7 +264,7 @@ impl PlayerInterface for MprisHandler {
         tauri::async_runtime::spawn(async move {
             let state = app.state::<AppState>();
             let _ = state.player.lock().await.set_paused(true).await;
-            notify(&state).await;
+            crate::platform::notify_playback_changed(&state).await;
         });
         Ok(())
     }
@@ -285,7 +285,7 @@ impl PlayerInterface for MprisHandler {
         tauri::async_runtime::spawn(async move {
             let state = app.state::<AppState>();
             let _ = state.player.lock().await.set_paused(true).await;
-            notify(&state).await;
+            crate::platform::notify_playback_changed(&state).await;
         });
         Ok(())
     }
@@ -295,7 +295,7 @@ impl PlayerInterface for MprisHandler {
         tauri::async_runtime::spawn(async move {
             let state = app.state::<AppState>();
             let _ = state.player.lock().await.set_paused(false).await;
-            notify(&state).await;
+            crate::platform::notify_playback_changed(&state).await;
         });
         Ok(())
     }
@@ -314,7 +314,7 @@ impl PlayerInterface for MprisHandler {
             let target = (current + offset.as_micros() as f64 / 1_000_000.0).max(0.0);
             let _ = player.seek_to(target).await;
             drop(player);
-            notify(&state).await;
+            crate::platform::notify_playback_changed(&state).await;
         });
         Ok(())
     }
@@ -337,7 +337,7 @@ impl PlayerInterface for MprisHandler {
             let state = app.state::<AppState>();
             let seconds = (position.as_micros() as f64 / 1_000_000.0).max(0.0);
             let _ = state.player.lock().await.seek_to(seconds).await;
-            notify(&state).await;
+            crate::platform::notify_playback_changed(&state).await;
         });
         Ok(())
     }

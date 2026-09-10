@@ -224,7 +224,6 @@ pub(crate) fn notify(handle: &Handle, presence: PresenceState) {
 /// Reads the same queue/player state `mpris::notify` reads and maps it
 /// to a `PresenceState`, then pushes it -- the bridge from `AppState` to
 /// Discord.
-#[allow(dead_code)]
 pub(crate) async fn notify_from_state(handle: &Handle, state: &crate::state::AppState) {
     let queue = state.queue.lock().unwrap().view();
     let Some(track) = queue.current else {
@@ -264,7 +263,6 @@ pub fn set_enabled(handle: &Handle, enabled: bool) {
 /// Best-effort immediate clear, for app shutdown. A plain channel send --
 /// never blocking IO -- so it can't hang the quit path even if Discord's
 /// socket is stuck.
-#[allow(dead_code)]
 pub fn clear(handle: &Handle) {
     let _ = handle.tx.send(PresenceState::Idle);
 }

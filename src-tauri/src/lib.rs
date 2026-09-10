@@ -190,6 +190,9 @@ pub fn run() {
                     // isn't a queue command, so it has to be recorded here
                     // instead, before the position it reads is gone.
                     let _ = commands::record_current_completion(&state).await;
+                    if let Some(handle) = state.discord.as_ref() {
+                        platform::discord::clear(handle);
+                    }
                     let _ = state.player.lock().await.shutdown().await;
                 });
             }

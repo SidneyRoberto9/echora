@@ -72,7 +72,7 @@ pub(crate) async fn resolve_and_load(
     }
     player.load(&resolved.stream_url).await?;
     drop(player);
-    crate::platform::mpris::notify(state).await;
+    crate::platform::notify_playback_changed(state).await;
 
     // Best-effort: resolve whatever's now next in the background, so it's
     // ready by the time the user actually gets there instead of paying the
@@ -100,7 +100,7 @@ pub(crate) async fn toggle_play_pause(state: &AppState) -> Result<()> {
     let paused = player.is_paused().await?.unwrap_or(false);
     player.set_paused(!paused).await?;
     drop(player);
-    crate::platform::mpris::notify(state).await;
+    crate::platform::notify_playback_changed(state).await;
     Ok(())
 }
 
