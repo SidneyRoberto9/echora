@@ -27,7 +27,10 @@ const MAX_FIELD_BYTES: usize = 128;
 /// runs, truncates at a UTF-8 char boundary within `max_bytes`, and
 /// falls back to "Echora" if nothing printable is left.
 pub(crate) fn sanitize_field(input: &str, max_bytes: usize) -> String {
-    let cleaned: String = input.chars().filter(|c| !c.is_control() || c.is_whitespace()).collect();
+    let cleaned: String = input
+        .chars()
+        .filter(|c| !c.is_control() || c.is_whitespace())
+        .collect();
     let collapsed = cleaned.split_whitespace().collect::<Vec<_>>().join(" ");
     let truncated = truncate_utf8(&collapsed, max_bytes);
     if truncated.is_empty() {
@@ -108,7 +111,10 @@ async fn connect() -> Option<UnixStream> {
             continue;
         };
         let handshake = serde_json::json!({ "v": 1, "client_id": DISCORD_CLIENT_ID });
-        if write_frame(&mut stream, OP_HANDSHAKE, &handshake).await.is_err() {
+        if write_frame(&mut stream, OP_HANDSHAKE, &handshake)
+            .await
+            .is_err()
+        {
             continue;
         }
         if read_frame(&mut stream).await.is_err() {
@@ -232,7 +238,12 @@ pub(crate) async fn notify_from_state(handle: &Handle, state: &crate::state::App
     };
     let mut player = state.player.lock().await;
     let paused = player.is_paused().await.ok().flatten().unwrap_or(false);
-    let position = player.position_seconds().await.ok().flatten().unwrap_or(0.0);
+    let position = player
+        .position_seconds()
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or(0.0);
     drop(player);
 
     let presence = if paused {
@@ -255,7 +266,9 @@ pub(crate) async fn notify_from_state(handle: &Handle, state: &crate::state::App
 /// toggle takes effect right away -- `watch::Sender::send` always
 /// notifies waiting receivers, even when resending the same value.
 pub fn set_enabled(handle: &Handle, enabled: bool) {
-    handle.enabled.store(enabled, std::sync::atomic::Ordering::Relaxed);
+    handle
+        .enabled
+        .store(enabled, std::sync::atomic::Ordering::Relaxed);
     let current = handle.tx.borrow().clone();
     let _ = handle.tx.send(current);
 }
@@ -285,7 +298,8 @@ async fn run(enabled: Arc<AtomicBool>, mut rx: watch::Receiver<PresenceState>) {
 
         if !enabled.load(std::sync::atomic::Ordering::Relaxed) {
             if let Some(mut s) = stream.take() {
-                let _ = write_frame(&mut s, OP_FRAME, &set_activity_frame(&PresenceState::Idle)).await;
+                let _ =
+                    write_frame(&mut s, OP_FRAME, &set_activity_frame(&PresenceState::Idle)).await;
             }
             continue;
         }
@@ -296,7 +310,10 @@ async fn run(enabled: Arc<AtomicBool>, mut rx: watch::Receiver<PresenceState>) {
         let Some(s) = stream.as_mut() else { continue };
 
         let presence = rx.borrow().clone();
-        if write_frame(s, OP_FRAME, &set_activity_frame(&presence)).await.is_err() {
+        if write_frame(s, OP_FRAME, &set_activity_frame(&presence))
+            .await
+            .is_err()
+        {
             stream = None;
         }
     }
@@ -308,7 +325,10 @@ mod tests {
 
     #[test]
     fn sanitize_field_strips_control_characters() {
-        assert_eq!(sanitize_field("Song\u{0007}Title", MAX_FIELD_BYTES), "SongTitle");
+        assert_eq!(
+            sanitize_field("Song\u{0007}Title", MAX_FIELD_BYTES),
+            "SongTitle"
+        );
     }
 
     #[test]
@@ -350,13 +370,22 @@ mod tests {
     fn candidate_paths_covers_all_ten_discord_ipc_indices() {
         let paths = candidate_paths("/run/user/1000");
         assert_eq!(paths.len(), 10);
-        assert_eq!(paths[0], std::path::PathBuf::from("/run/user/1000/discord-ipc-0"));
-        assert_eq!(paths[9], std::path::PathBuf::from("/run/user/1000/discord-ipc-9"));
+        assert_eq!(
+            paths[0],
+            std::path::PathBuf::from("/run/user/1000/discord-ipc-0")
+        );
+        assert_eq!(
+            paths[9],
+            std::path::PathBuf::from("/run/user/1000/discord-ipc-9")
+        );
     }
 
     #[test]
     fn activity_value_for_idle_is_null() {
-        assert_eq!(activity_value(&PresenceState::Idle, 1000.0), serde_json::Value::Null);
+        assert_eq!(
+            activity_value(&PresenceState::Idle, 1000.0),
+            serde_json::Value::Null
+        );
     }
 
     #[test]
