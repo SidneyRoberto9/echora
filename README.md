@@ -1,6 +1,10 @@
 <h1 align="center">Echora</h1>
 <p align="center"><i>Choose a mood. Press play.</i></p>
 
+<p align="center">
+  <img src="docs/screenshots/moods.png" alt="Echora's mood grid, with Surprise Me at the top and moods grouped by category" width="880">
+</p>
+
 Echora is an extremely lightweight, mood-first desktop audio player for
 Linux. Pick how you want to feel — *Villain*, *Focus*, *Night Drive*,
 *Still in Love* — and Echora finds and plays matching audio, without
@@ -19,6 +23,16 @@ Searching things like *"POV: I'm a Villain"* or *"POV: I'm Still in
 Love"* playlists on YouTube works, but it means keeping a full browser
 tab (and the whole YouTube web app) resident just to play audio in the
 background. Echora's only job is to make that lighter.
+
+## Screenshots
+
+| Player | Queue |
+| --- | --- |
+| ![Now playing, with mood, progress, transport controls and volume](docs/screenshots/player.png) | ![Queue, showing the current track and what comes next](docs/screenshots/queue.png) |
+
+| Statistics | Settings |
+| --- | --- |
+| ![Listening statistics: time listened, sessions, tracks played, top mood, and sessions by category](docs/screenshots/statistics.png) | ![Settings: SponsorBlock segments, startup, history, privacy and third-party licenses](docs/screenshots/settings.png) |
 
 ## Priorities, in order
 
