@@ -33,6 +33,8 @@ export interface SessionMood {
 export interface SessionInfo {
   id: number;
   moods: SessionMood[];
+  /** Track a link-radio session started from; null for mood sessions. */
+  seed: Track | null;
   started_at: number;
   ended_at: number | null;
 }
@@ -157,6 +159,7 @@ export const api = {
   updateSettings: (patch: Partial<Settings>) => call<Settings>("update_settings", { patch }),
 
   startMoodSession: (moodId: string) => call<SessionInfo>("start_mood_session", { moodId }),
+  startLinkSession: (url: string) => call<SessionInfo>("start_link_session", { url }),
   startMixedSession: (moods: SessionMood[]) => call<SessionInfo>("start_mixed_session", { moods }),
   endSession: () => call<void>("end_session"),
   getCurrentSession: () => call<SessionInfo | null>("get_current_session"),

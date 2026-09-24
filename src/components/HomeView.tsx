@@ -13,6 +13,7 @@ interface HomeViewProps {
   onStartMood: (moodId: string) => void;
   onStartMix: (moods: SessionMood[]) => void | Promise<void>;
   onSurpriseMe: () => void;
+  onStartLink: (url: string) => Promise<boolean>;
 }
 
 function evenWeights(count: number): number[] {
@@ -29,11 +30,13 @@ export function HomeView({
   onStartMood,
   onStartMix,
   onSurpriseMe,
+  onStartLink,
 }: HomeViewProps) {
   const { moods, favoriteMoodIds, recentMoodIds, loading, error } = moodsData;
   const [mixMode, setMixMode] = useState(false);
   const [selectedMoodIds, setSelectedMoodIds] = useState<string[]>([]);
   const [weights, setWeights] = useState<number[]>([]);
+  const [link, setLink] = useState("");
 
   useEffect(() => {
     if (error) onError(error);
@@ -125,6 +128,30 @@ export function HomeView({
       >
         {mixMode ? "Cancel mix" : "Mix moods"}
       </button>
+
+      <form
+        className="link-radio"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          if (!link.trim()) return;
+          if (await onStartLink(link)) setLink("");
+        }}
+      >
+        <input
+          className="link-radio__input"
+          type="text"
+          inputMode="url"
+          value={link}
+          onChange={(e) => setLink(e.target.value)}
+          placeholder="Paste a YouTube link to start a mix"
+          aria-label="YouTube link"
+          disabled={busy || mixMode}
+          spellCheck={false}
+        />
+        <button className="link-radio__button" type="submit" disabled={busy || mixMode || !link.trim()}>
+          {startingMoodId === "link" ? "Starting…" : "Start mix"}
+        </button>
+      </form>
 
       {mixMode && selectedMoods.length >= 2 ? (
         <MoodMixBar

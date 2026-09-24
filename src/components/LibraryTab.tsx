@@ -16,6 +16,7 @@ interface LibraryTabProps {
   onStartMix: (moods: SessionMood[]) => void;
   onPlayTrack: (track: Track) => void;
   onPlayScene: (sceneId: number) => void;
+  onStartLink: (url: string) => Promise<boolean> | void;
   onError: (message: string) => void;
 }
 
@@ -46,6 +47,7 @@ export function LibraryTab({
   onStartMix,
   onPlayTrack,
   onPlayScene,
+  onStartLink,
   onError,
 }: LibraryTabProps) {
   const { history, favoriteMoodIds, favoriteTracks, mostPlayedMoods, scenes, refreshScenes, loading } =
@@ -180,13 +182,17 @@ export function LibraryTab({
               className="library-row"
               disabled={busy}
               onClick={() =>
-                session.moods.length > 1
-                  ? onStartMix(session.moods)
-                  : onStartMood(session.moods[0].mood_id)
+                session.seed
+                  ? onStartLink(`https://youtu.be/${session.seed.id}`)
+                  : session.moods.length > 1
+                    ? onStartMix(session.moods)
+                    : onStartMood(session.moods[0].mood_id)
               }
             >
               <span className="library-row__title">
-                {session.moods.map((m) => moodName(m.mood_id)).join(" + ")}
+                {session.seed
+                  ? `Mix · ${session.seed.title}`
+                  : session.moods.map((m) => moodName(m.mood_id)).join(" + ")}
               </span>
               <span className="library-row__meta">
                 {formatDate(session.started_at)} · {session.track_count} tracks

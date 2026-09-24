@@ -17,6 +17,7 @@ interface DiscoverViewProps {
   onStartMix: (moods: SessionMood[]) => void;
   onPlayTrack: (track: Track) => void;
   onPlayScene: (sceneId: number) => void;
+  onStartLink: (url: string) => Promise<boolean>;
   sceneSaveTick: number;
 }
 
@@ -29,6 +30,7 @@ export function DiscoverView({
   onStartMix,
   onPlayTrack,
   onPlayScene,
+  onStartLink,
   sceneSaveTick,
 }: DiscoverViewProps) {
   const [tab, setTab] = useState<DiscoverTab>("library");
@@ -128,6 +130,7 @@ export function DiscoverView({
             onStartMix={onStartMix}
             onPlayTrack={onPlayTrack}
             onPlayScene={onPlayScene}
+            onStartLink={onStartLink}
             onError={onError}
           />
         </div>

@@ -24,6 +24,7 @@ function App() {
   const [startingMoodId, setStartingMoodId] = useState<string | null>(null);
   const [startingTrackId, setStartingTrackId] = useState<string | null>(null);
   const [currentMoods, setCurrentMoods] = useState<SessionMood[] | null>(null);
+  const [currentSeedTitle, setCurrentSeedTitle] = useState<string | null>(null);
   const [globalError, setGlobalError] = useState<string | null>(null);
   const [sceneSaveTick, setSceneSaveTick] = useState(0);
 
@@ -67,6 +68,7 @@ function App() {
       try {
         const session = await api.startMoodSession(moodId);
         setCurrentMoods(session.moods);
+        setCurrentSeedTitle(null);
         await playback.refreshQueue();
         setPlayerExpanded(true);
       } catch (err) {
@@ -84,6 +86,7 @@ function App() {
       try {
         const session = await api.startMixedSession(moods);
         setCurrentMoods(session.moods);
+        setCurrentSeedTitle(null);
         await playback.refreshQueue();
         setPlayerExpanded(true);
       } catch (err) {
@@ -101,6 +104,7 @@ function App() {
       try {
         await api.playSingleTrack(track);
         setCurrentMoods(null);
+        setCurrentSeedTitle(null);
         await playback.refreshQueue();
         setPlayerExpanded(true);
       } catch (err) {
@@ -118,6 +122,7 @@ function App() {
       try {
         await api.playScene(sceneId);
         setCurrentMoods(null);
+        setCurrentSeedTitle(null);
         await playback.refreshQueue();
         setPlayerExpanded(true);
       } catch (err) {
@@ -134,6 +139,7 @@ function App() {
     try {
       const session = await api.surpriseMe();
       setCurrentMoods(session.moods);
+      setCurrentSeedTitle(null);
       await playback.refreshQueue();
       setPlayerExpanded(true);
     } catch (err) {
@@ -143,11 +149,33 @@ function App() {
     }
   }, [playback, reportError]);
 
-  const currentMoodName = currentMoods
-    ? currentMoods
-        .map((m) => moodsData.moods.find((mood) => mood.id === m.mood_id)?.name ?? "Unknown mood")
-        .join(" + ")
-    : null;
+  const handleStartLink = useCallback(
+    async (url: string) => {
+      setStartingMoodId("link");
+      try {
+        const session = await api.startLinkSession(url);
+        setCurrentMoods(null);
+        setCurrentSeedTitle(session.seed?.title ?? null);
+        await playback.refreshQueue();
+        setPlayerExpanded(true);
+        return true;
+      } catch (err) {
+        reportError(messageOf(err));
+        return false;
+      } finally {
+        setStartingMoodId(null);
+      }
+    },
+    [playback, reportError],
+  );
+
+  const currentMoodName = currentSeedTitle
+    ? `Mix · ${currentSeedTitle}`
+    : currentMoods
+      ? currentMoods
+          .map((m) => moodsData.moods.find((mood) => mood.id === m.mood_id)?.name ?? "Unknown mood")
+          .join(" + ")
+      : null;
 
   return (
     <div className="app-shell">
@@ -168,6 +196,7 @@ function App() {
             onStartMood={handleStartMood}
             onStartMix={handleStartMix}
             onSurpriseMe={handleSurpriseMe}
+            onStartLink={handleStartLink}
           />
         ) : null}
         {view === "queue" ? (
@@ -183,6 +212,7 @@ function App() {
             onStartMix={handleStartMix}
             onPlayTrack={handlePlayTrack}
             onPlayScene={handlePlayScene}
+            onStartLink={handleStartLink}
             sceneSaveTick={sceneSaveTick}
           />
         ) : null}
