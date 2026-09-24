@@ -58,6 +58,43 @@ impl Resolver {
             .collect()
     }
 
+    /// YouTube's own auto-generated Mix for `seed_id` (`list=RD<id>`) --
+    /// the similarity source for link radio. Same flat, metadata-only
+    /// output as `search`. The URL is built only from a validated id.
+    #[allow(dead_code)]
+    pub async fn radio<R: tauri::Runtime>(
+        &self,
+        app: &tauri::AppHandle<R>,
+        seed_id: &str,
+        limit: u32,
+    ) -> Result<Vec<Track>> {
+        if !metadata::is_valid_youtube_id(seed_id) {
+            return Err(EchoraError::InvalidLink);
+        }
+        let url = format!("https://www.youtube.com/watch?v={seed_id}&list=RD{seed_id}");
+        let stdout = self
+            .run(
+                app,
+                vec![
+                    "--js-runtimes".into(),
+                    format!("deno:{}", self.config.deno_path.display()),
+                    url,
+                    "--flat-playlist".into(),
+                    "--playlist-end".into(),
+                    limit.to_string(),
+                    "--dump-json".into(),
+                    "--no-warnings".into(),
+                ],
+            )
+            .await?;
+
+        stdout
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .map(metadata::parse_search_result)
+            .collect()
+    }
+
     /// Resolves one track to a playable direct audio stream URL. Retries
     /// once on a transient failure (timeout/IO) — never on a classified
     /// permanent unavailability (private/removed/region-blocked), since
@@ -204,6 +241,14 @@ mod tests {
             .unwrap_err();
         assert!(matches!(err, EchoraError::Metadata(_)));
     }
+
+    #[tokio::test]
+    async fn radio_rejects_an_invalid_seed_id_before_spawning_yt_dlp() {
+        let resolver = Resolver::new(test_config());
+        let app = test_app_handle();
+        let err = resolver.radio(&app, "abc&list=x", 30).await.unwrap_err();
+        assert!(matches!(err, EchoraError::InvalidLink), "{err:?}");
+    }
 }
 
 /// Real, network- and binary-dependent smoke tests. Not run by default —
@@ -247,6 +292,16 @@ mod smoke_tests {
             .unwrap();
         assert!(!tracks.is_empty());
         assert!(!tracks[0].id.is_empty());
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn radio_for_a_real_track_returns_related_tracks_seed_first() {
+        let resolver = Resolver::new(dev_config());
+        let app = test_app_handle();
+        let tracks = resolver.radio(&app, "dQw4w9WgXcQ", 30).await.unwrap();
+        assert!(tracks.len() >= 10, "got {}", tracks.len());
+        assert_eq!(tracks[0].id, "dQw4w9WgXcQ");
     }
 
     #[tokio::test]
