@@ -34,10 +34,12 @@ pub enum EchoraError {
     #[error("invalid mood mix: {0}")]
     InvalidMoodMix(String),
 
+    // Wired in by commands::link (link radio Task 5); remove this allow then.
     #[allow(dead_code)]
     #[error("That's not a YouTube link.")]
     InvalidLink,
 
+    // Wired in by commands::link (link radio Task 5); remove this allow then.
     #[allow(dead_code)]
     #[error("Couldn't build a mix from this track.")]
     MixUnavailable,
