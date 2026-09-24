@@ -7,6 +7,8 @@ pub mod queue;
 pub mod session;
 pub mod settings;
 
+use std::collections::HashSet;
+
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use tauri::Manager;
@@ -16,6 +18,29 @@ use crate::models::{Mood, SessionInfo, Track};
 use crate::mood_engine::{self, GenerationConfig};
 use crate::state::AppState;
 
+/// True when `current` (the session id read back from the DB right before a
+/// top-up's fetched candidates are appended) still matches the session the
+/// fetch was started for. `false` means a newer session took over while the
+/// fetch was in flight -- a concurrent top-up finishing late, or the user
+/// starting a new mood/link session -- and the candidates must be dropped
+/// instead of leaking into whatever's playing now.
+pub(crate) fn session_still_current(current: Option<i64>, expected: i64) -> bool {
+    current == Some(expected)
+}
+
+/// Drops candidates already present in the queue. Two top-ups triggered by
+/// the same low-watermark crossing (e.g. two advances inside one slow
+/// fetch) can both compute an overlapping batch from the same snapshot;
+/// this keeps the second append from duplicating whatever the first one
+/// already added.
+pub(crate) fn dedup_against_queue(candidates: Vec<Track>, existing: &[Track]) -> Vec<Track> {
+    let existing_ids: HashSet<&str> = existing.iter().map(|t| t.id.as_str()).collect();
+    candidates
+        .into_iter()
+        .filter(|t| !existing_ids.contains(t.id.as_str()))
+        .collect()
+}
+
 /// Generates a fresh batch of candidates for `moods` (1-3 weighted moods)
 /// and appends them to the queue. Shared by starting a mixed session and
 /// topping the queue back up mid-session — both are "get more candidates
@@ -23,6 +48,7 @@ use crate::state::AppState;
 pub(crate) async fn top_up_queue<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
     state: &AppState,
+    session_id: i64,
     moods: &[(String, u8)],
 ) -> Result<()> {
     let resolved: Vec<(&Mood, u8)> = moods
@@ -47,7 +73,18 @@ pub(crate) async fn top_up_queue<R: tauri::Runtime>(
         &mut rng,
     )
     .await?;
-    state.queue.lock().unwrap().add_candidates(candidates);
+
+    // The fetch above can take a while; if a newer session started (or this
+    // one just ended) while it was in flight, these candidates belong to a
+    // mix nobody's listening to anymore -- drop them instead of appending
+    // into whatever's current now.
+    let current = state.db.lock().unwrap().current_session()?.map(|s| s.id);
+    if !session_still_current(current, session_id) {
+        return Ok(());
+    }
+    let mut queue = state.queue.lock().unwrap();
+    let candidates = dedup_against_queue(candidates, queue.all_tracks());
+    queue.add_candidates(candidates);
     Ok(())
 }
 
@@ -167,7 +204,7 @@ pub(crate) async fn start_session_and_play(
     moods: &[(String, u8)],
 ) -> Result<SessionInfo> {
     let session = crate::commands::session::start_session_impl(state, moods).await?;
-    top_up_queue(app, state, moods).await?;
+    top_up_queue(app, state, session.id, moods).await?;
 
     let current = state.queue.lock().unwrap().current().cloned();
     if let Some(track) = current {
@@ -241,6 +278,37 @@ mod tests {
 
         let sessions = state.db.lock().unwrap().list_sessions(10, 0).unwrap();
         assert_eq!(sessions[0].track_count, 0);
+    }
+
+    #[test]
+    fn session_still_current_is_true_when_ids_match() {
+        assert!(session_still_current(Some(1), 1));
+    }
+
+    #[test]
+    fn session_still_current_is_false_when_a_different_session_is_open() {
+        assert!(!session_still_current(Some(2), 1));
+    }
+
+    #[test]
+    fn session_still_current_is_false_when_no_session_is_open() {
+        assert!(!session_still_current(None, 1));
+    }
+
+    #[test]
+    fn dedup_against_queue_drops_candidates_already_in_the_queue() {
+        let existing = [track("a"), track("b")];
+        let deduped = dedup_against_queue(vec![track("b"), track("c")], &existing);
+        assert_eq!(
+            deduped.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(),
+            vec!["c"]
+        );
+    }
+
+    #[test]
+    fn dedup_against_queue_keeps_everything_when_the_queue_is_empty() {
+        let deduped = dedup_against_queue(vec![track("a"), track("b")], &[]);
+        assert_eq!(deduped.len(), 2);
     }
 
     #[tokio::test]

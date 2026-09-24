@@ -269,7 +269,7 @@ pub async fn ensure_queue_topped_up(
         None => return Ok(()),
     };
     if let Some(seed) = session.seed {
-        return super::link::top_up_link_queue(&app, &state, &seed.id).await;
+        return super::link::top_up_link_queue(&app, &state, session.id, &seed.id).await;
     }
     let moods: Vec<(String, u8)> = session
         .moods
@@ -277,7 +277,7 @@ pub async fn ensure_queue_topped_up(
         .map(|m| (m.mood_id, m.weight))
         .collect();
 
-    super::top_up_queue(&app, &state, &moods).await
+    super::top_up_queue(&app, &state, session.id, &moods).await
 }
 
 /// Clears the way for an ad-hoc single-track play: ends the active

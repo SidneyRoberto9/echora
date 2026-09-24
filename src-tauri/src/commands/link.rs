@@ -80,6 +80,7 @@ pub async fn start_link_session(
 pub(crate) async fn top_up_link_queue(
     app: &tauri::AppHandle,
     state: &AppState,
+    session_id: i64,
     original_seed_id: &str,
 ) -> Result<()> {
     let (seed_id, exclude) = {
@@ -110,7 +111,17 @@ pub(crate) async fn top_up_link_queue(
             &ctx,
         );
     }
-    state.queue.lock().unwrap().add_candidates(fresh);
+
+    // Same fetch-took-a-while guard as the mood path's `top_up_queue`: drop
+    // the batch instead of appending it into a session that isn't this one
+    // anymore.
+    let current = state.db.lock().unwrap().current_session()?.map(|s| s.id);
+    if !super::session_still_current(current, session_id) {
+        return Ok(());
+    }
+    let mut queue = state.queue.lock().unwrap();
+    let fresh = super::dedup_against_queue(fresh, queue.all_tracks());
+    queue.add_candidates(fresh);
     Ok(())
 }
 
