@@ -1,4 +1,5 @@
 pub mod candidates;
+pub mod link_radio;
 pub mod scoring;
 pub mod surprise;
 
