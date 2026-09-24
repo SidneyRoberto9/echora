@@ -67,6 +67,9 @@ pub struct SessionMood {
 pub struct SessionInfo {
     pub id: i64,
     pub moods: Vec<SessionMood>,
+    /// The track a link-radio session was started from; `None` for mood
+    /// sessions.
+    pub seed: Option<Track>,
     pub started_at: i64,
     pub ended_at: Option<i64>,
 }
@@ -75,6 +78,9 @@ pub struct SessionInfo {
 pub struct SessionSummary {
     pub id: i64,
     pub moods: Vec<SessionMood>,
+    /// The track a link-radio session was started from; `None` for mood
+    /// sessions.
+    pub seed: Option<Track>,
     pub started_at: i64,
     pub ended_at: Option<i64>,
     pub track_count: u32,

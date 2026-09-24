@@ -19,6 +19,7 @@ fn migrations() -> Migrations<'static> {
         M::up(include_str!("../../migrations/0002_scenes.sql")),
         M::up(include_str!("../../migrations/0003_mixed_sessions.sql")),
         M::up(include_str!("../../migrations/0004_group_by_indexes.sql")),
+        M::up(include_str!("../../migrations/0005_link_sessions.sql")),
     ])
 }
 

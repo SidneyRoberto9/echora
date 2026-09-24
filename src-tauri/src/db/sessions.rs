@@ -141,6 +141,52 @@ impl Db {
                     weight: *weight,
                 })
                 .collect(),
+            seed: None,
+            started_at,
+            ended_at: None,
+        })
+    }
+
+    /// Ends any open session and starts a link-radio session seeded by
+    /// `seed` -- one transaction, same reasoning as `start_session`
+    /// (P2-13). The seed is upserted so its title is joinable later.
+    // Wired in by commands::link (link radio Task 5); remove this allow then.
+    #[allow(dead_code)]
+    pub fn start_link_session(&self, seed: &Track) -> Result<SessionInfo> {
+        let started_at = now();
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute(
+            "INSERT INTO tracks (id, title, artist, duration_seconds, thumbnail_url, first_seen_at, last_seen_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)
+             ON CONFLICT(id) DO UPDATE SET
+                title = excluded.title,
+                artist = excluded.artist,
+                duration_seconds = excluded.duration_seconds,
+                thumbnail_url = excluded.thumbnail_url,
+                last_seen_at = excluded.last_seen_at",
+            rusqlite::params![
+                seed.id,
+                seed.title,
+                seed.artist,
+                seed.duration_seconds,
+                seed.thumbnail_url,
+                started_at,
+            ],
+        )?;
+        tx.execute(
+            "UPDATE sessions SET ended_at = ?1 WHERE ended_at IS NULL",
+            [started_at],
+        )?;
+        tx.execute(
+            "INSERT INTO sessions (started_at, seed_track_id) VALUES (?1, ?2)",
+            rusqlite::params![started_at, seed.id],
+        )?;
+        let id = tx.last_insert_rowid();
+        tx.commit()?;
+        Ok(SessionInfo {
+            id,
+            moods: Vec::new(),
+            seed: Some(seed.clone()),
             started_at,
             ended_at: None,
         })
@@ -168,6 +214,27 @@ impl Db {
             .map_err(Into::into)
     }
 
+    fn session_seed(&self, session_id: i64) -> Result<Option<Track>> {
+        self.conn
+            .query_row(
+                "SELECT t.id, t.title, t.artist, t.duration_seconds, t.thumbnail_url
+                 FROM sessions s JOIN tracks t ON t.id = s.seed_track_id
+                 WHERE s.id = ?1",
+                [session_id],
+                |r| {
+                    Ok(Track {
+                        id: r.get(0)?,
+                        title: r.get(1)?,
+                        artist: r.get(2)?,
+                        duration_seconds: r.get(3)?,
+                        thumbnail_url: r.get(4)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+
     /// The most recent session that hasn't been ended, if any.
     pub fn current_session(&self) -> Result<Option<SessionInfo>> {
         let row = self
@@ -192,6 +259,7 @@ impl Db {
         Ok(Some(SessionInfo {
             id,
             moods: self.session_moods(id)?,
+            seed: self.session_seed(id)?,
             started_at,
             ended_at,
         }))
@@ -217,6 +285,7 @@ impl Db {
                 Ok(SessionSummary {
                     id,
                     moods: self.session_moods(id)?,
+                    seed: self.session_seed(id)?,
                     started_at,
                     ended_at,
                     track_count,
@@ -289,6 +358,43 @@ mod tests {
 
     fn single(mood_id: &str) -> Vec<(String, u8)> {
         vec![(mood_id.to_string(), 100)]
+    }
+
+    fn seed_track() -> Track {
+        Track {
+            id: "dQw4w9WgXcQ".into(),
+            title: "Never Gonna Give You Up".into(),
+            artist: Some("Rick Astley".into()),
+            duration_seconds: Some(214),
+            thumbnail_url: None,
+        }
+    }
+
+    #[test]
+    fn start_link_session_persists_the_seed_and_no_moods() {
+        let db = Db::open_in_memory().unwrap();
+        let info = db.start_link_session(&seed_track()).unwrap();
+        assert!(info.moods.is_empty());
+        assert_eq!(info.seed.as_ref().unwrap().id, "dQw4w9WgXcQ");
+
+        let current = db.current_session().unwrap().unwrap();
+        assert_eq!(current.id, info.id);
+        assert_eq!(current.seed.unwrap().title, "Never Gonna Give You Up");
+
+        let listed = db.list_sessions(10, 0).unwrap();
+        assert_eq!(listed[0].seed.as_ref().unwrap().id, "dQw4w9WgXcQ");
+    }
+
+    #[test]
+    fn start_link_session_ends_the_previous_session() {
+        let db = Db::open_in_memory().unwrap();
+        let mood = db.start_session(&[("villain".to_string(), 100)]).unwrap();
+        let link = db.start_link_session(&seed_track()).unwrap();
+        let listed = db.list_sessions(10, 0).unwrap();
+        let old = listed.iter().find(|s| s.id == mood.id).unwrap();
+        assert!(old.ended_at.is_some());
+        assert!(old.seed.is_none());
+        assert_eq!(db.current_session().unwrap().unwrap().id, link.id);
     }
 
     #[test]
