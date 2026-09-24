@@ -101,6 +101,10 @@ pub fn is_valid_youtube_id(id: &str) -> bool {
 /// nothing but a bare 11-char id ever reaches a yt-dlp URL.
 pub fn youtube_id_from_link(input: &str) -> Result<String> {
     let rest = input.trim();
+    // A `#fragment` (e.g. `#t=10`) is client-side only -- yt-dlp never sees
+    // it and it carries no id, so drop it before anything else looks at
+    // host/path/query.
+    let rest = rest.split('#').next().unwrap_or(rest);
     let rest = rest
         .strip_prefix("https://")
         .or_else(|| rest.strip_prefix("http://"))
@@ -262,6 +266,8 @@ mod tests {
             "youtu.be/dQw4w9WgXcQ",
             "  https://www.youtube.com/watch?v=dQw4w9WgXcQ  ",
             "https://youtu.be/dQw4w9WgXcQ/",
+            "https://youtu.be/dQw4w9WgXcQ#t=10",
+            "https://www.youtube.com/watch?v=dQw4w9WgXcQ#t=10",
         ] {
             assert_eq!(youtube_id_from_link(link).unwrap(), "dQw4w9WgXcQ", "{link}");
         }
