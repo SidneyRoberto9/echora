@@ -10,15 +10,11 @@ use crate::mood_engine::scoring::ScoringContext;
 
 /// Enough for ~an hour of music per fetch while staying one quick yt-dlp
 /// call; top-up runs again long before it's exhausted.
-#[allow(dead_code)]
-// Wired in by commands::link (link radio Task 5); remove this allow then.
 pub const RADIO_FETCH_LIMIT: u32 = 30;
 
 /// Same filters mood candidates get (dedup, non-music, known-unavailable)
 /// plus disliked tracks and anything already in this session -- but no
 /// score shuffle: Mix order is what carries the similarity.
-#[allow(dead_code)]
-// Wired in by commands::link (link radio Task 5); remove this allow then.
 pub fn filter_radio(
     raw: Vec<Track>,
     exclude_ids: &HashSet<String>,
@@ -34,8 +30,6 @@ pub fn filter_radio(
 
 /// The Mix to fetch next continues from the newest track in the queue,
 /// so the radio drifts naturally; with an empty queue, the original seed.
-#[allow(dead_code)]
-// Wired in by commands::link (link radio Task 5); remove this allow then.
 pub fn next_seed(queue: &[Track], original_seed_id: &str) -> String {
     queue
         .last()

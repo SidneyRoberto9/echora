@@ -99,8 +99,6 @@ pub fn is_valid_youtube_id(id: &str) -> bool {
 /// `www.`/`m.`/`music.` `/watch?v=ID` or `youtu.be/ID`, any extra query
 /// params ignored. The id still goes through `is_valid_youtube_id`, so
 /// nothing but a bare 11-char id ever reaches a yt-dlp URL.
-// Wired in by commands::link (link radio Task 5); remove this allow then.
-#[allow(dead_code)]
 pub fn youtube_id_from_link(input: &str) -> Result<String> {
     let rest = input.trim();
     let rest = rest

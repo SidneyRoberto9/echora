@@ -1,5 +1,6 @@
 pub mod crash;
 pub mod library;
+pub mod link;
 pub mod mood;
 pub mod playback;
 pub mod queue;

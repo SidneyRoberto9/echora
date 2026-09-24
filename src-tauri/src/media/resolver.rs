@@ -61,8 +61,6 @@ impl Resolver {
     /// YouTube's own auto-generated Mix for `seed_id` (`list=RD<id>`) --
     /// the similarity source for link radio. Same flat, metadata-only
     /// output as `search`. The URL is built only from a validated id.
-    // Wired in by commands::link (link radio Task 5); remove this allow then.
-    #[allow(dead_code)]
     pub async fn radio<R: tauri::Runtime>(
         &self,
         app: &tauri::AppHandle<R>,

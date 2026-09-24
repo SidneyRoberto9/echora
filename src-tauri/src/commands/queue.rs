@@ -251,8 +251,9 @@ pub fn queue_remove(state: State<AppState>, index: usize) -> Result<()> {
 }
 
 /// Tops the queue back up if it's running low, using the active session's
-/// mood. A no-op if there's still plenty queued, or if the queue is low
-/// but there's no active session to generate more candidates for.
+/// moods, or its link-radio seed. A no-op if there's still plenty queued,
+/// or if the queue is low but there's no active session to generate more
+/// candidates for.
 #[tauri::command]
 pub async fn ensure_queue_topped_up(
     app: tauri::AppHandle,
@@ -263,17 +264,18 @@ pub async fn ensure_queue_topped_up(
         return Ok(());
     }
 
-    let moods = {
-        let db = state.db.lock().unwrap();
-        match db.current_session()? {
-            Some(session) => session
-                .moods
-                .into_iter()
-                .map(|m| (m.mood_id, m.weight))
-                .collect::<Vec<_>>(),
-            None => return Ok(()),
-        }
+    let session = match state.db.lock().unwrap().current_session()? {
+        Some(session) => session,
+        None => return Ok(()),
     };
+    if let Some(seed) = session.seed {
+        return super::link::top_up_link_queue(&app, &state, &seed.id).await;
+    }
+    let moods: Vec<(String, u8)> = session
+        .moods
+        .into_iter()
+        .map(|m| (m.mood_id, m.weight))
+        .collect();
 
     super::top_up_queue(&app, &state, &moods).await
 }

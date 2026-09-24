@@ -167,6 +167,7 @@ pub fn run() {
             commands::queue::queue_remove,
             commands::queue::ensure_queue_topped_up,
             commands::queue::play_single_track,
+            commands::link::start_link_session,
             commands::queue::save_scene,
             commands::queue::list_scenes,
             commands::queue::play_scene,

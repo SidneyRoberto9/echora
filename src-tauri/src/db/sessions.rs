@@ -150,8 +150,6 @@ impl Db {
     /// Ends any open session and starts a link-radio session seeded by
     /// `seed` -- one transaction, same reasoning as `start_session`
     /// (P2-13). The seed is upserted so its title is joinable later.
-    // Wired in by commands::link (link radio Task 5); remove this allow then.
-    #[allow(dead_code)]
     pub fn start_link_session(&self, seed: &Track) -> Result<SessionInfo> {
         let started_at = now();
         let tx = self.conn.unchecked_transaction()?;
