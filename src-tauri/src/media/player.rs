@@ -355,9 +355,14 @@ impl Player {
         Ok(())
     }
 
+    /// Updates the cached `pause` on ack, same reasoning as `load()`: mpv
+    /// replies to `set_property` before emitting the matching
+    /// property-change, so callers that notify right after this returns
+    /// (tray/MPRIS toggle) would otherwise publish the old state.
     pub async fn set_paused(&mut self, paused: bool) -> Result<()> {
         self.send_command(json!(["set_property", "pause", paused]))
             .await?;
+        self.cache.lock().unwrap().is_paused = Some(paused);
         Ok(())
     }
 
@@ -710,17 +715,11 @@ mod tests {
         let _ = std::fs::remove_file(&socket_path);
     }
 
-    /// The cached position/duration belong to the track being replaced:
-    /// anything reading them between `load()` and mpv's first
-    /// property-change for the *new* file (Discord presence's start
-    /// anchor, MPRIS's `Seeked` signal — both fire in the statement right
-    /// after `load()` returns) would otherwise report the outgoing
-    /// track's elapsed time as the incoming one's.
-    #[tokio::test]
-    async fn load_clears_the_previous_tracks_cached_position_and_duration() {
-        let socket_path = hang_socket_path();
-        let listener = UnixListener::bind(&socket_path).unwrap();
-        let _fake_mpv = tokio::spawn(async move {
+    /// Stands in for mpv: acks every request with `success` and never
+    /// emits a property-change, so the cache only moves if `Player`
+    /// updates it itself.
+    fn spawn_ack_only_mpv(listener: UnixListener) -> tokio::task::JoinHandle<()> {
+        tokio::spawn(async move {
             let (stream, _addr) = listener.accept().await.unwrap();
             let (read_half, mut write_half) = stream.into_split();
             let mut reader = BufReader::new(read_half);
@@ -739,7 +738,46 @@ mod tests {
                 let reply = json!({ "error": "success", "request_id": id });
                 let _ = write_half.write_all(format!("{reply}\n").as_bytes()).await;
             }
-        });
+        })
+    }
+
+    /// mpv acks `set_property pause` *before* its `property-change` event
+    /// (confirmed against real mpv), so a cache that only the reader task
+    /// updates still reads the old value right after `set_paused` returns
+    /// -- and `platform::notify_playback_changed`, called in the very next
+    /// statement by the tray/MPRIS toggle, would publish "still playing"
+    /// for a pause, leaving the UI's play button inverted.
+    #[tokio::test]
+    async fn set_paused_updates_the_cached_paused_state_on_ack() {
+        let socket_path = hang_socket_path();
+        let _fake_mpv = spawn_ack_only_mpv(UnixListener::bind(&socket_path).unwrap());
+
+        let mut player = Player::new(
+            socket_path.clone(),
+            std::env::temp_dir(),
+            Arc::new(AtomicBool::new(false)),
+        );
+        player.connect_persistent().await.unwrap();
+        player.cache.lock().unwrap().is_paused = Some(false);
+
+        player.set_paused(true).await.unwrap();
+        assert_eq!(player.is_paused().await.unwrap(), Some(true));
+        player.set_paused(false).await.unwrap();
+        assert_eq!(player.is_paused().await.unwrap(), Some(false));
+
+        let _ = std::fs::remove_file(&socket_path);
+    }
+
+    /// The cached position/duration belong to the track being replaced:
+    /// anything reading them between `load()` and mpv's first
+    /// property-change for the *new* file (Discord presence's start
+    /// anchor, MPRIS's `Seeked` signal — both fire in the statement right
+    /// after `load()` returns) would otherwise report the outgoing
+    /// track's elapsed time as the incoming one's.
+    #[tokio::test]
+    async fn load_clears_the_previous_tracks_cached_position_and_duration() {
+        let socket_path = hang_socket_path();
+        let _fake_mpv = spawn_ack_only_mpv(UnixListener::bind(&socket_path).unwrap());
 
         let mut player = Player::new(
             socket_path.clone(),
