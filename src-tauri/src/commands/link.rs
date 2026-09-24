@@ -25,6 +25,20 @@ fn scoring_context(state: &AppState) -> Result<mood_engine::scoring::ScoringCont
     mood_engine::build_scoring_context(&db, GenerationConfig::default().recent_session_window)
 }
 
+/// Maps a failed initial Mix fetch to what the user should see. Only a
+/// specific, known unavailability reason (private/removed/region_blocked)
+/// keeps its own message -- `classify_ytdlp_failure`'s "unknown" catch-all,
+/// a sidecar timeout, and garbled output all read as "no mix" instead of
+/// leaking an internal reason string like "track unavailable: unknown".
+fn start_error(err: EchoraError) -> EchoraError {
+    match err {
+        EchoraError::TrackUnavailable(reason) if reason != "unknown" => {
+            EchoraError::TrackUnavailable(reason)
+        }
+        _ => EchoraError::MixUnavailable,
+    }
+}
+
 /// Starts link radio from a pasted YouTube link. The Mix is fetched
 /// before anything about the current session changes, so a bad link or
 /// an empty Mix leaves whatever is playing untouched.
@@ -41,10 +55,7 @@ pub async fn start_link_session(
         .resolver
         .radio(&app, &seed_id, RADIO_FETCH_LIMIT)
         .await
-        .map_err(|err| match err {
-            EchoraError::TrackUnavailable(_) => err,
-            _ => EchoraError::MixUnavailable,
-        })?;
+        .map_err(start_error)?;
     let (seed, rest) = split_seed(mix, &seed_id)?;
 
     let ctx = scoring_context(&state)?;
@@ -138,5 +149,29 @@ mod tests {
             let err = split_seed(mix, "s").unwrap_err();
             assert!(matches!(err, EchoraError::MixUnavailable), "{err:?}");
         }
+    }
+
+    #[test]
+    fn start_error_passes_through_a_known_unavailability_reason() {
+        let err = start_error(EchoraError::TrackUnavailable("private".into()));
+        assert!(matches!(err, EchoraError::TrackUnavailable(r) if r == "private"));
+    }
+
+    #[test]
+    fn start_error_maps_unknown_reason_to_mix_unavailable() {
+        let err = start_error(EchoraError::TrackUnavailable("unknown".into()));
+        assert!(matches!(err, EchoraError::MixUnavailable), "{err:?}");
+    }
+
+    #[test]
+    fn start_error_maps_sidecar_timeout_to_mix_unavailable() {
+        let err = start_error(EchoraError::SidecarTimeout("yt-dlp".into()));
+        assert!(matches!(err, EchoraError::MixUnavailable), "{err:?}");
+    }
+
+    #[test]
+    fn start_error_maps_metadata_error_to_mix_unavailable() {
+        let err = start_error(EchoraError::Metadata("garbled output".into()));
+        assert!(matches!(err, EchoraError::MixUnavailable), "{err:?}");
     }
 }
