@@ -90,14 +90,16 @@ pub(crate) async fn top_up_link_queue(
     };
     let ctx = scoring_context(state)?;
 
-    let mut fresh = link_radio::filter_radio(
-        state
-            .resolver
-            .radio(app, &seed_id, RADIO_FETCH_LIMIT)
-            .await?,
-        &exclude,
-        &ctx,
-    );
+    // A failed fetch reads the same as an empty one: it falls through to
+    // the original-seed retry below instead of failing the whole top-up
+    // outright, so a dead tail (a seed whose Mix now 404s/times out) gets
+    // one more chance before the caller gives up until the next top-up.
+    let first_mix = state
+        .resolver
+        .radio(app, &seed_id, RADIO_FETCH_LIMIT)
+        .await
+        .unwrap_or_default();
+    let mut fresh = link_radio::filter_radio(first_mix, &exclude, &ctx);
     if fresh.is_empty() && seed_id != original_seed_id {
         fresh = link_radio::filter_radio(
             state
