@@ -150,6 +150,34 @@ mod tests {
     }
 
     #[test]
+    fn migrating_from_pre_0005_leaves_existing_sessions_with_no_seed() {
+        // 0005 only adds a nullable column, but prove a session created
+        // before it exists still reads back cleanly through `Db` (as a
+        // mood session with no seed) after upgrading, instead of relying
+        // on that by inspection alone.
+        let mut conn = Connection::open_in_memory().unwrap();
+        configure_pragmas(&conn).unwrap();
+        migrations().to_version(&mut conn, 4).unwrap();
+
+        conn.execute("INSERT INTO sessions (started_at) VALUES (?1)", [now()])
+            .unwrap();
+        let session_id = conn.last_insert_rowid();
+        conn.execute(
+            "INSERT INTO session_moods (session_id, mood_id, weight) VALUES (?1, ?2, ?3)",
+            rusqlite::params![session_id, "villain", 100],
+        )
+        .unwrap();
+
+        migrations().to_latest(&mut conn).unwrap();
+
+        let db = Db { conn };
+        let session = db.current_session().unwrap().unwrap();
+        assert_eq!(session.id, session_id);
+        assert!(session.seed.is_none());
+        assert_eq!(session.moods.len(), 1);
+    }
+
+    #[test]
     fn open_in_memory_does_not_fail_even_though_it_cannot_use_wal() {
         // SQLite keeps `:memory:` connections on the "memory" journal mode
         // regardless of what we ask for; `configure_pragmas` must treat
