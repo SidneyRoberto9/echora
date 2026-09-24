@@ -120,15 +120,6 @@ export function HomeView({
         <ChevronRightIcon />
       </button>
 
-      <button
-        type="button"
-        className={`mix-toggle${mixMode ? " is-active" : ""}`}
-        onClick={() => (mixMode ? exitMixMode() : setMixMode(true))}
-        disabled={busy}
-      >
-        {mixMode ? "Cancel mix" : "Mix moods"}
-      </button>
-
       <form
         className="link-radio"
         onSubmit={async (e) => {
@@ -152,6 +143,15 @@ export function HomeView({
           {startingMoodId === "link" ? "Starting…" : "Start mix"}
         </button>
       </form>
+
+      <button
+        type="button"
+        className={`mix-toggle${mixMode ? " is-active" : ""}`}
+        onClick={() => (mixMode ? exitMixMode() : setMixMode(true))}
+        disabled={busy}
+      >
+        {mixMode ? "Cancel mix" : "Mix moods"}
+      </button>
 
       {mixMode && selectedMoods.length >= 2 ? (
         <MoodMixBar
