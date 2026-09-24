@@ -34,6 +34,14 @@ pub enum EchoraError {
     #[error("invalid mood mix: {0}")]
     InvalidMoodMix(String),
 
+    #[allow(dead_code)]
+    #[error("That's not a YouTube link.")]
+    InvalidLink,
+
+    #[allow(dead_code)]
+    #[error("Couldn't build a mix from this track.")]
+    MixUnavailable,
+
     #[error("malformed sidecar output: {0}")]
     Metadata(String),
 
@@ -75,6 +83,8 @@ impl EchoraError {
             EchoraError::NoActiveSession => "no_active_session",
             EchoraError::UnknownMood(_) => "unknown_mood",
             EchoraError::InvalidMoodMix(_) => "invalid_mood_mix",
+            EchoraError::InvalidLink => "invalid_link",
+            EchoraError::MixUnavailable => "mix_unavailable",
             EchoraError::Metadata(_) => "metadata_error",
             EchoraError::TrackUnavailable(_) => "track_unavailable",
             EchoraError::SidecarTimeout(_) => "sidecar_timeout",

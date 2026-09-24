@@ -95,6 +95,44 @@ pub fn is_valid_youtube_id(id: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
 }
 
+/// Extracts the video id from a pasted YouTube link -- `youtube.com`/
+/// `www.`/`m.`/`music.` `/watch?v=ID` or `youtu.be/ID`, any extra query
+/// params ignored. The id still goes through `is_valid_youtube_id`, so
+/// nothing but a bare 11-char id ever reaches a yt-dlp URL.
+#[allow(dead_code)]
+pub fn youtube_id_from_link(input: &str) -> Result<String> {
+    let rest = input.trim();
+    let rest = rest
+        .strip_prefix("https://")
+        .or_else(|| rest.strip_prefix("http://"))
+        .unwrap_or(rest);
+    if rest.contains("://") {
+        return Err(EchoraError::InvalidLink);
+    }
+    let (host, path_and_query) = rest.split_once('/').unwrap_or((rest, ""));
+    let (path, query) = path_and_query
+        .split_once('?')
+        .unwrap_or((path_and_query, ""));
+
+    let id = match host.to_ascii_lowercase().as_str() {
+        "youtu.be" => path.trim_end_matches('/'),
+        "youtube.com" | "www.youtube.com" | "m.youtube.com" | "music.youtube.com"
+            if path == "watch" =>
+        {
+            query
+                .split('&')
+                .find_map(|pair| pair.strip_prefix("v="))
+                .unwrap_or("")
+        }
+        _ => "",
+    };
+    if is_valid_youtube_id(id) {
+        Ok(id.to_string())
+    } else {
+        Err(EchoraError::InvalidLink)
+    }
+}
+
 /// yt-dlp gives a top-level `thumbnail` convenience field on full (non-flat)
 /// output, but flat-playlist search results only have a `thumbnails` array
 /// — the last entry is conventionally the highest-resolution one.
@@ -114,6 +152,7 @@ fn best_thumbnail(value: &serde_json::Value) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::error::EchoraError;
 
     const SEARCH_FIXTURE: &str = include_str!("fixtures/search_flat_playlist.jsonl");
     const RESOLVE_FIXTURE: &str = include_str!("fixtures/resolve_bestaudio.json");
@@ -209,5 +248,45 @@ mod tests {
     fn unrecognized_failure_text_still_yields_a_generic_unavailable() {
         let err = classify_ytdlp_failure("ERROR: something completely unexpected happened");
         assert!(matches!(err, EchoraError::TrackUnavailable(r) if r == "unknown"));
+    }
+
+    #[test]
+    fn youtube_id_from_link_accepts_supported_forms() {
+        for link in [
+            "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+            "https://youtube.com/watch?v=dQw4w9WgXcQ",
+            "http://m.youtube.com/watch?v=dQw4w9WgXcQ",
+            "https://music.youtube.com/watch?v=dQw4w9WgXcQ&si=abc",
+            "https://www.youtube.com/watch?list=PLx&v=dQw4w9WgXcQ&t=42s",
+            "https://youtu.be/dQw4w9WgXcQ",
+            "https://youtu.be/dQw4w9WgXcQ?si=xyz&t=10",
+            "youtu.be/dQw4w9WgXcQ",
+            "  https://www.youtube.com/watch?v=dQw4w9WgXcQ  ",
+            "https://youtu.be/dQw4w9WgXcQ/",
+        ] {
+            assert_eq!(youtube_id_from_link(link).unwrap(), "dQw4w9WgXcQ", "{link}");
+        }
+    }
+
+    #[test]
+    fn youtube_id_from_link_rejects_everything_else() {
+        for link in [
+            "",
+            "never gonna give you up",
+            "https://www.youtube.com/playlist?list=PLx",
+            "https://www.youtube.com/@channel",
+            "https://www.youtube.com/shorts/dQw4w9WgXcQ",
+            "https://youtube.com.evil.com/watch?v=dQw4w9WgXcQ",
+            "https://evil.com/?u=youtube.com/watch?v=dQw4w9WgXcQ",
+            "https://www.youtube.com/watch?v=dQw4w9WgX",
+            "https://www.youtube.com/watch?v=dQw4w9WgX&Q",
+            "https://youtu.be/",
+            "ftp://youtu.be/dQw4w9WgXcQ",
+        ] {
+            assert!(
+                matches!(youtube_id_from_link(link), Err(EchoraError::InvalidLink)),
+                "{link}"
+            );
+        }
     }
 }
